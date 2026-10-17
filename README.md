@@ -9,8 +9,8 @@
 
 Scarica direttamente l'applicazione con un clic:
 
-* 🍏 **[Download Bathys Universal (Apple Silicon M1/M2/M3/M4 & macOS 14+)](https://github.com/marcovernetto-lgtm/Bathys/raw/main/installers/Bathys-Universal-Intel-AppleSilicon.dmg)** (~6.0 MB)
-* 💻 **[Download Bathys Intel Legacy (macOS 13 Ventura & MacBook Pro 2017+)](https://github.com/marcovernetto-lgtm/Bathys/raw/main/installers/Bathys-Intel-macOS13-Ventura.dmg)** (~4.8 MB)
+* 🍏 **[Download Bathys Apple Silicon](https://github.com/marcovernetto-lgtm/Bathys/raw/main/installers/Bathys-Universal-Intel-AppleSilicon.dmg)** (~6.0 MB)
+* 💻 **[Download Bathys Intel ](https://github.com/marcovernetto-lgtm/Bathys/raw/main/installers/Bathys-Intel-macOS13-Ventura.dmg)** (~4.8 MB)
 
 ---
 
