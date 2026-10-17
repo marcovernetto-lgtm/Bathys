@@ -181,26 +181,26 @@ public struct DiskVolume: Identifiable, Hashable, Sendable {
 }
 
 /// Motore Sonar Abissale: Analizzatore gerarchico dello spazio disco e generatore radiale Sunburst Bathys.
-@MainActor @Observable
-final class SonarEngine {
-    var availableVolumes: [DiskVolume] = []
-    var selectedVolumeId: String = "/"
+@MainActor
+final class SonarEngine: ObservableObject {
+    @Published var availableVolumes: [DiskVolume] = []
+    @Published var selectedVolumeId: String = "/"
 
     var selectedVolume: DiskVolume? {
         availableVolumes.first(where: { $0.id == selectedVolumeId })
             ?? availableVolumes.first
     }
 
-    var isScanning = false
-    var scannedFilesCount = 0
-    var currentScanPath = ""
-    var rootNode: DiskNode?
-    var navigationStack: [DiskNode] = []
-    var hoveredNode: DiskNode?
-    var nodePendingTrash: DiskNode?
+    @Published var isScanning = false
+    @Published var scannedFilesCount = 0
+    @Published var currentScanPath = ""
+    @Published var rootNode: DiskNode?
+    @Published var navigationStack: [DiskNode] = []
+    @Published var hoveredNode: DiskNode?
+    @Published var nodePendingTrash: DiskNode?
 
     /// Nodi scoperti in tempo reale durante la scansione per popolare i blip del radar Sonar
-    var liveRadarBlips: [(name: String, bytes: Int64, angle: Double, distance: Double)] = []
+    @Published var liveRadarBlips: [(name: String, bytes: Int64, angle: Double, distance: Double)] = []
 
     var currentNode: DiskNode? {
         navigationStack.last ?? rootNode

@@ -40,9 +40,9 @@ struct LaunchAgentItem: Identifiable, Sendable {
 }
 
 /// Motore Bathys Optimizer: Telemetria macOS in tempo reale, audit LaunchAgents orfani e manutenzione di sistema.
-@MainActor @Observable
-final class OptimizerEngine {
-    var tasks: [OptimizationTaskItem] = [
+@MainActor
+final class OptimizerEngine: ObservableObject {
+    @Published var tasks: [OptimizationTaskItem] = [
         .init(
             id: "quicklook",
             titleIT: "Rigenera anteprime QuickLook e icone Finder",
@@ -85,16 +85,16 @@ final class OptimizerEngine {
         )
     ]
 
-    var launchAgents: [LaunchAgentItem] = []
-    var isRunningTasks = false
-    var isScanningAgents = false
+    @Published var launchAgents: [LaunchAgentItem] = []
+    @Published var isRunningTasks = false
+    @Published var isScanningAgents = false
 
     // Telemetria Hardware
-    var diskTotalBytes: Int64 = 0
-    var diskFreeBytes: Int64 = 0
-    var ramTotalBytes: UInt64 = 0
-    var ramUsedBytes: UInt64 = 0
-    var cpuCores: Int = 8
+    @Published var diskTotalBytes: Int64 = 0
+    @Published var diskFreeBytes: Int64 = 0
+    @Published var ramTotalBytes: UInt64 = 0
+    @Published var ramUsedBytes: UInt64 = 0
+    @Published var cpuCores: Int = 8
 
     var diskUsedFraction: Double {
         guard diskTotalBytes > 0 else { return 0 }

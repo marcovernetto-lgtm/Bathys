@@ -260,21 +260,21 @@ enum MacSafetyIntelligence {
 }
 
 /// Motore Bathys Deep Scan: Analisi profonda di cache, cloni temporanei, artefatti di sviluppo e residui orfani.
-@MainActor @Observable
-final class Scanner {
-    var categories: [ScanCategory]
-    var isScanning = false
-    var hasScanned = false
-    var isCleaning = false
-    var isResurfacing = false
-    var hasCleaned = false
-    var depth: Double = 0          // 0 = superficie (0%), 1 = fondale marino (100% completato)
-    var currentPath = ""
-    var startedAt: Date?
-    var resurfaceStartedAt: Date?
-    var lastCleanedBytes: Int64 = 0
-    var lastCleanedCount: Int = 0
-    var showCleanConfirmation = false
+@MainActor
+final class Scanner: ObservableObject {
+    @Published var categories: [ScanCategory]
+    @Published var isScanning = false
+    @Published var hasScanned = false
+    @Published var isCleaning = false
+    @Published var isResurfacing = false
+    @Published var hasCleaned = false
+    @Published var depth: Double = 0          // 0 = superficie (0%), 1 = fondale marino (100% completato)
+    @Published var currentPath = ""
+    @Published var startedAt: Date?
+    @Published var resurfaceStartedAt: Date?
+    @Published var lastCleanedBytes: Int64 = 0
+    @Published var lastCleanedCount: Int = 0
+    @Published var showCleanConfirmation = false
 
     var totalBytes: Int64 { categories.reduce(0) { $0 + $1.bytes } }
     var selectedBytes: Int64 { categories.reduce(0) { $0 + $1.selectedBytes } }

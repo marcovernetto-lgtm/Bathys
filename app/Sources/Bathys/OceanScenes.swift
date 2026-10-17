@@ -696,7 +696,7 @@ struct PropulsionTelemetryScene: View {
         .onAppear {
             accelerationFactor = isOptimizing ? 1.0 : 0.0
         }
-        .onChange(of: isOptimizing) { _, running in
+        .onChange(of: isOptimizing) { running in
             withAnimation(running ? .easeInOut(duration: 0.8) : .easeOut(duration: 1.2)) {
                 accelerationFactor = running ? 1.0 : 0.0
             }

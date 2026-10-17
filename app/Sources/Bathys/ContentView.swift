@@ -121,14 +121,14 @@ struct ContentView: View {
     var initialMode: BathysMode? = nil
 
     @State private var activeMode: BathysMode? = nil
-    @State private var scanner = Scanner()
-    @State private var sonar = SonarEngine()
-    @State private var uninstaller = UninstallerEngine()
-    @State private var optimizer = OptimizerEngine()
-    @State private var permissionManager = PermissionManager()
+    @StateObject private var scanner = Scanner()
+    @StateObject private var sonar = SonarEngine()
+    @StateObject private var uninstaller = UninstallerEngine()
+    @StateObject private var optimizer = OptimizerEngine()
+    @StateObject private var permissionManager = PermissionManager()
     @State private var showPrivacySheet = false
     @State private var showSettingsSheet = false
-    @State private var settings = AppSettings.shared
+    @ObservedObject private var settings = AppSettings.shared
 
     init(autoScan: Bool = false, initialMode: BathysMode? = nil) {
         self.autoScan = autoScan
@@ -189,11 +189,11 @@ struct ContentView: View {
                 permissionManager: permissionManager,
                 onDismiss: { showPrivacySheet = false }
             )
-            .presentationBackground(BathysPalette.workspaceBottom)
+            
         }
         .sheet(isPresented: $showSettingsSheet) {
             SettingsSheetView()
-                .presentationBackground(BathysPalette.workspaceBottom)
+                
         }
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
             permissionManager.checkPermissions()
@@ -675,7 +675,7 @@ struct DeepCleanAnimatedVector: View {
             )
         }
         .frame(width: 48, height: 48)
-        .onChange(of: isHovered) { _, hovering in
+        .onChange(of: isHovered) { hovering in
             if hovering {
                 withAnimation(.easeInOut(duration: 0.85).repeatForever(autoreverses: true)) {
                     wavePhase = 3.5
@@ -744,7 +744,7 @@ struct SonarAnimatedVector: View {
                 .frame(width: 5.0, height: 5.0)
         }
         .frame(width: 72, height: 72)
-        .onChange(of: isHovered) { _, hovering in
+        .onChange(of: isHovered) { hovering in
             if hovering {
                 withAnimation(.linear(duration: 2.0).repeatForever(autoreverses: false)) {
                     sweepAngle = -45.0 + 360.0
@@ -798,7 +798,7 @@ struct UninstallerAnimatedVector: View {
             .offset(x: 7.5 + ejectOffset, y: -7.5 - ejectOffset)
         }
         .frame(width: 72, height: 72)
-        .onChange(of: isHovered) { _, hovering in
+        .onChange(of: isHovered) { hovering in
             withAnimation(.spring(response: 0.32, dampingFraction: 0.62)) {
                 ejectOffset = hovering ? 2.5 : 0.0
             }
@@ -866,7 +866,7 @@ struct OptimizerAnimatedVector: View {
                 .frame(width: 5.0, height: 5.0)
         }
         .frame(width: 72, height: 72)
-        .onChange(of: isHovered) { _, hovering in
+        .onChange(of: isHovered) { hovering in
             withAnimation(.spring(response: 0.34, dampingFraction: 0.56)) {
                 needleAngle = hovering ? 25.0 : -45.0
             }
@@ -1269,7 +1269,7 @@ struct TactileOrbButtonStyle: ButtonStyle {
 // MARK: - MODULE 1: SCANSIONE PROFONDA (Native Bathys Deep Clean)
 
 struct DeepCleanModuleView: View {
-    @Bindable var scanner: Scanner
+    @ObservedObject var scanner: Scanner
     let onBack: () -> Void
 
     var body: some View {
@@ -1340,7 +1340,7 @@ struct DeepCleanModuleView: View {
                 onCancel: { scanner.showCleanConfirmation = false },
                 onConfirm: { scanner.cleanSelectedItems() }
             )
-            .presentationBackground(BathysPalette.workspaceBottom)
+            
         }
     }
 
@@ -1447,7 +1447,7 @@ struct DeepCleanModuleView: View {
                 Text(ByteCountFormatter.string(fromByteCount: scanner.selectedBytes, countStyle: .file))
                     .font(.system(size: 56, weight: .light))
                     .monospacedDigit()
-                    .contentTransition(.numericText())
+                    
                     .animation(.spring(response: 0.28, dampingFraction: 0.82), value: scanner.selectedBytes)
                     .foregroundStyle(BathysPalette.textPrimary)
 
@@ -1523,7 +1523,7 @@ struct DeepCleanModuleView: View {
                         Text(ByteCountFormatter.string(fromByteCount: scanner.selectedBytes, countStyle: .file))
                             .font(.system(size: 38, weight: .light))
                             .monospacedDigit()
-                            .contentTransition(.numericText())
+                            
                             .animation(.spring(response: 0.28, dampingFraction: 0.82), value: scanner.selectedBytes)
                             .foregroundStyle(BathysPalette.textPrimary)
 
@@ -1647,7 +1647,7 @@ struct SpaciousCategoryCard: View {
                     Text(ByteCountFormatter.string(fromByteCount: category.selectedBytes, countStyle: .file))
                         .font(.system(size: 13.5, weight: .medium))
                         .monospacedDigit()
-                        .contentTransition(.numericText())
+                        
                         .foregroundStyle(category.isSelected ? BathysPalette.textPrimary : BathysPalette.textTertiary)
                 } else {
                     Text("Zero KB")
@@ -2451,9 +2451,12 @@ struct FloatingPlasticDebrisLayer: View {
 
         ZStack {
             ForEach(activeItems) { item in
-                let idleDriftX = sin(time * item.floatSpeed + Double(item.id) * 1.7) * item.driftRangeX
-                let idleBobY = cos(time * (item.floatSpeed * 1.15) + Double(item.id) * 2.1) * item.bobRangeY
-                let idleRock = sin(time * (item.floatSpeed * 0.9) + Double(item.id)) * item.maxRockDeg
+                let phaseX = time * item.floatSpeed + Double(item.id) * 1.7
+                let idleDriftX = CGFloat(sin(phaseX)) * item.driftRangeX
+                let phaseY = time * (item.floatSpeed * 1.15) + Double(item.id) * 2.1
+                let idleBobY = CGFloat(cos(phaseY)) * item.bobRangeY
+                let phaseRock = time * (item.floatSpeed * 0.9) + Double(item.id)
+                let idleRock = Double(sin(phaseRock)) * item.maxRockDeg
 
                 let initialX = width * item.xRatio + idleDriftX
                 let initialY = height * item.yRatio + idleBobY
@@ -2488,10 +2491,10 @@ struct FloatingPlasticDebrisLayer: View {
         .onAppear {
             syncVisibleCount(target: eligibleItems.count)
         }
-        .onChange(of: eligibleItems.count) { _, newCount in
+        .onChange(of: eligibleItems.count) { newCount in
             syncVisibleCount(target: newCount)
         }
-        .onChange(of: isCleaning) { _, cleaning in
+        .onChange(of: isCleaning) { cleaning in
             if cleaning {
                 suctionProgress = 0.0
                 withAnimation(.easeInOut(duration: 1.25)) {
@@ -2501,7 +2504,7 @@ struct FloatingPlasticDebrisLayer: View {
                 suctionProgress = 0.0
             }
         }
-        .onChange(of: hasCleaned) { _, cleaned in
+        .onChange(of: hasCleaned) { cleaned in
             if cleaned {
                 visibleCount = 0
             }
@@ -2609,10 +2612,10 @@ struct SeafloorDebrisLayer: View {
         .onAppear {
             syncVisibleCount(target: eligibleItems.count)
         }
-        .onChange(of: eligibleItems.count) { _, newCount in
+        .onChange(of: eligibleItems.count) { newCount in
             syncVisibleCount(target: newCount)
         }
-        .onChange(of: isCleaning) { _, cleaning in
+        .onChange(of: isCleaning) { cleaning in
             if cleaning {
                 suctionProgress = 0.0
                 withAnimation(.easeInOut(duration: 1.25)) {
@@ -2622,7 +2625,7 @@ struct SeafloorDebrisLayer: View {
                 suctionProgress = 0.0
             }
         }
-        .onChange(of: hasCleaned) { _, cleaned in
+        .onChange(of: hasCleaned) { cleaned in
             if cleaned {
                 visibleCount = 0
             }
@@ -2793,9 +2796,9 @@ struct SwimmingFishInstance: View {
 
 // MARK: - Permission Manager (Full Disk Access Detection & macOS Security)
 
-@MainActor @Observable
-final class PermissionManager {
-    var hasFullDiskAccess: Bool = false
+@MainActor
+final class PermissionManager: ObservableObject {
+    @Published var hasFullDiskAccess: Bool = false
     var hasSeenPrivacyOnboarding: Bool {
         get { UserDefaults.standard.bool(forKey: "hasSeenPrivacyOnboarding") }
         set { UserDefaults.standard.set(newValue, forKey: "hasSeenPrivacyOnboarding") }
@@ -2865,7 +2868,7 @@ struct SheetWindowCustomizer: NSViewRepresentable {
 // MARK: - High-Craft Privacy & Permission Onboarding Sheet
 
 struct PrivacyOnboardingSheet: View {
-    @Bindable var permissionManager: PermissionManager
+    @ObservedObject var permissionManager: PermissionManager
     let onDismiss: () -> Void
 
     var body: some View {

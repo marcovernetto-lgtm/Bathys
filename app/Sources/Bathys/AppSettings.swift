@@ -22,35 +22,34 @@ enum AppLanguage: String, CaseIterable, Identifiable, Sendable {
     }
 }
 
-@Observable
-final class AppSettings {
+final class AppSettings: ObservableObject {
     static let shared = AppSettings()
 
-    var language: AppLanguage {
+    @Published var language: AppLanguage {
         didSet {
             UserDefaults.standard.set(language.rawValue, forKey: "bathys_language")
         }
     }
 
-    var soundNotificationsEnabled: Bool {
+    @Published var soundNotificationsEnabled: Bool {
         didSet {
             UserDefaults.standard.set(soundNotificationsEnabled, forKey: "bathys_sound_enabled")
         }
     }
 
-    var systemNotificationsEnabled: Bool {
+    @Published var systemNotificationsEnabled: Bool {
         didSet {
             UserDefaults.standard.set(systemNotificationsEnabled, forKey: "bathys_sys_notifications")
         }
     }
 
-    var confirmBeforeClean: Bool {
+    @Published var confirmBeforeClean: Bool {
         didSet {
             UserDefaults.standard.set(confirmBeforeClean, forKey: "bathys_confirm_clean")
         }
     }
 
-    var sonarThresholdMB: Int {
+    @Published var sonarThresholdMB: Int {
         didSet {
             UserDefaults.standard.set(sonarThresholdMB, forKey: "bathys_sonar_threshold")
         }

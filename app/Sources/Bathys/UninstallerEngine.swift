@@ -72,17 +72,17 @@ struct InstalledApp: Identifiable, Hashable {
 }
 
 /// Motore Disinstallazione Profonda Bathys: Scansione applicazioni installate, Drag & Drop .app e ricerca profonda di tutti i residui orfani in ~/Library e /Library.
-@MainActor @Observable
-final class UninstallerEngine {
-    var apps: [InstalledApp] = []
-    var searchQuery: String = ""
-    var isLoadingApps = false
-    var isScanningResiduals = false
-    var selectedApp: InstalledApp?
-    var residuals: [AppResidualItem] = []
-    var showUninstallConfirmation = false
-    var lastUninstalledAppName: String?
-    var lastFreedBytes: Int64 = 0
+@MainActor
+final class UninstallerEngine: ObservableObject {
+    @Published var apps: [InstalledApp] = []
+    @Published var searchQuery: String = ""
+    @Published var isLoadingApps = false
+    @Published var isScanningResiduals = false
+    @Published var selectedApp: InstalledApp?
+    @Published var residuals: [AppResidualItem] = []
+    @Published var showUninstallConfirmation = false
+    @Published var lastUninstalledAppName: String?
+    @Published var lastFreedBytes: Int64 = 0
     private var inspectTask: Task<Void, Never>?
 
     var filteredApps: [InstalledApp] {

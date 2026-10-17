@@ -33,3 +33,4 @@ Icon
 # Logs & temporary files
 *.log
 *.tmp
+legacy-app/

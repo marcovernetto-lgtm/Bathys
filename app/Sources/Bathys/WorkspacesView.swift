@@ -5,7 +5,7 @@ import UniformTypeIdentifiers
 // MARK: - MODULE 2: SONAR SPAZIO (Bathys Radial Disk Telemetry)
 
 struct SonarDiskWorkspace: View {
-    @Bindable var sonar: SonarEngine
+    @ObservedObject var sonar: SonarEngine
     let onBack: () -> Void
 
     var body: some View {
@@ -99,7 +99,7 @@ struct SonarDiskWorkspace: View {
                     Text("\(sonar.scannedFilesCount) elementi analizzati")
                         .font(.system(size: 44, weight: .light))
                         .monospacedDigit()
-                        .contentTransition(.numericText())
+                        
                         .animation(.spring(response: 0.26, dampingFraction: 0.82), value: sonar.scannedFilesCount)
                         .foregroundStyle(BathysPalette.textPrimary)
 
@@ -125,7 +125,7 @@ struct SonarDiskWorkspace: View {
                         Text(current.formattedSize)
                             .font(.system(size: 32, weight: .light))
                             .monospacedDigit()
-                            .contentTransition(.numericText())
+                            
                             .foregroundStyle(BathysPalette.textTertiary)
 
                         Spacer()
@@ -202,7 +202,7 @@ struct SonarDiskWorkspace: View {
                 onCancel: { sonar.nodePendingTrash = nil },
                 onConfirm: { sonar.moveNodeToTrash(nodeToTrash) }
             )
-            .presentationBackground(BathysPalette.workspaceBottom)
+            
         }
     }
 
@@ -253,7 +253,7 @@ struct SonarDiskWorkspace: View {
 // MARK: - Interactive Bathys Sunburst Chart
 
 struct BathysSunburstView: View {
-    @Bindable var sonar: SonarEngine
+    @ObservedObject var sonar: SonarEngine
     let currentNode: DiskNode
     var diameter: CGFloat = 248
 
@@ -424,7 +424,7 @@ struct BathysSunburstView: View {
 }
 
 struct SonarNavigateUpRow: View {
-    @Bindable var sonar: SonarEngine
+    @ObservedObject var sonar: SonarEngine
     @State private var isHovered = false
 
     var body: some View {
@@ -658,7 +658,7 @@ struct SonarNodeRow: View {
 // MARK: - MODULE 3: DISINSTALLA APP (Bathys Deep Application Uninstaller)
 
 struct UninstallerWorkspace: View {
-    @Bindable var uninstaller: UninstallerEngine
+    @ObservedObject var uninstaller: UninstallerEngine
     let onBack: () -> Void
     @State private var isDropTargeted = false
     @State private var keyMonitor: Any? = nil
@@ -764,7 +764,7 @@ struct UninstallerWorkspace: View {
                         }
                         .padding(10)
                     }
-                    .onChange(of: uninstaller.selectedApp?.id) { _, newId in
+                    .onChange(of: uninstaller.selectedApp?.id) { newId in
                         if let newId {
                             withAnimation(.easeInOut(duration: 0.16)) {
                                 scrollProxy.scrollTo(newId, anchor: .center)
@@ -828,7 +828,7 @@ struct UninstallerWorkspace: View {
                                 Text(ByteCountFormatter.string(fromByteCount: uninstaller.totalSelectedBytes, countStyle: .file))
                                     .font(.system(size: 26, weight: .light))
                                     .monospacedDigit()
-                                    .contentTransition(.numericText())
+                                    
                                     .animation(.spring(response: 0.26, dampingFraction: 0.82), value: uninstaller.totalSelectedBytes)
                                     .foregroundStyle(.white)
 
@@ -920,26 +920,6 @@ struct UninstallerWorkspace: View {
             .padding(.bottom, 26)
         }
         .focusable()
-        .focusEffectDisabled()
-        .onKeyPress(.upArrow) {
-            uninstaller.selectPreviousApp()
-            return .handled
-        }
-        .onKeyPress(.downArrow) {
-            uninstaller.selectNextApp()
-            return .handled
-        }
-        .onKeyPress(.delete) {
-            if uninstaller.selectedApp != nil && uninstaller.totalSelectedBytes > 0 {
-                if AppSettings.shared.confirmBeforeClean {
-                    uninstaller.showUninstallConfirmation = true
-                } else {
-                    uninstaller.uninstallSelectedItems()
-                }
-                return .handled
-            }
-            return .ignored
-        }
         .onDrop(of: [.fileURL], isTargeted: $isDropTargeted) { providers in
             guard let first = providers.first else { return false }
             _ = first.loadObject(ofClass: URL.self) { url, _ in
@@ -1022,7 +1002,7 @@ struct UninstallerWorkspace: View {
                     onCancel: { uninstaller.showUninstallConfirmation = false },
                     onConfirm: { uninstaller.uninstallSelectedItems() }
                 )
-                .presentationBackground(BathysPalette.workspaceBottom)
+                
             }
         }
     }
@@ -1106,7 +1086,7 @@ struct ResidualItemRow: View {
 // MARK: - MODULE 4: PRESTAZIONI (Separated Tabs for Breathability — Zero Crowding)
 
 struct OptimizationWorkspace: View {
-    @Bindable var optimizer: OptimizerEngine
+    @ObservedObject var optimizer: OptimizerEngine
     let onBack: () -> Void
     @State private var selectedSection: Int = 0 // 0 = Manutenzione, 1 = Elementi di Avvio
 
