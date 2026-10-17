@@ -15,6 +15,7 @@ scratch/
 
 # Build artifacts & installers
 *.dmg
+!installers/*.dmg
 *.zip
 *.app/
 *.app.dSYM/
