@@ -43,7 +43,8 @@ struct LeftThemedOceanPane: View {
             let h = proxy.size.height
 
             let isHighActivity = scanner.isScanning || scanner.isCleaning || scanner.isResurfacing || sonar.isScanning || uninstaller.isLoadingApps || optimizer.isRunningTasks
-            TimelineView(.animation(minimumInterval: isHighActivity ? (1.0 / 60.0) : (1.0 / 30.0))) { timeline in
+            // Intel Legacy Optimization: 12 FPS a riposo (zero riscaldamento/ventole), 30 FPS durante scansioni attive
+            TimelineView(.animation(minimumInterval: isHighActivity ? (1.0 / 30.0) : (1.0 / 12.0))) { timeline in
                 let time = timeline.date.timeIntervalSinceReferenceDate
 
                 ZStack {
@@ -59,14 +60,18 @@ struct LeftThemedOceanPane: View {
                         endPoint: .bottom
                     )
 
-                    // 2. Particelle marine leggere
-                    MarineParticlesLayer(time: time, width: w, height: h)
+                    // 2. Particelle marine leggere (attive durante scansione o navigazione)
+                    if isHighActivity {
+                        MarineParticlesLayer(time: time, width: w, height: h)
+                    }
 
-                    // 3. Scena Tematica Specifica per Modalità (Senza Testi o Box Sovrapposti)
+                    // 3. Scena Tematica Specifica per Modalità
                     switch mode {
                     case .none, .some(.deepClean):
-                        VolumetricSunRaysView(time: time, width: w, height: h)
-                        WaterCausticsLayer(time: time, width: w, height: h)
+                        if isHighActivity {
+                            VolumetricSunRaysView(time: time, width: w, height: h)
+                            WaterCausticsLayer(time: time, width: w, height: h)
+                        }
                         AnimatedWaterSurfaceWave(time: time, width: w, height: h)
                         DistantReefLayer(time: time, width: w, height: h)
                         BackgroundFishLayer(time: time, containerSize: proxy.size)

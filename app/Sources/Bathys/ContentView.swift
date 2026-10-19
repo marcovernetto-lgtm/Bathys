@@ -2788,7 +2788,6 @@ struct SwimmingFishInstance: View {
             .scaleEffect(x: swimRight ? 1 : -1, y: 1)
             .rotationEffect(.degrees(swimRight ? tailWag : -tailWag))
             .opacity(opacity)
-            .blur(radius: blur)
             .position(x: posX, y: swimY)
             .shadow(color: Color.black.opacity(opacity * 0.35), radius: 4, y: 3)
     }
