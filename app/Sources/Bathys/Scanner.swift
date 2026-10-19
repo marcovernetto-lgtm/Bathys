@@ -106,7 +106,10 @@ enum MacSafetyIntelligence {
         "PassKit",
         "com.apple.nsurlsessiond",
         "com.apple.Safari.SafeBrowsing",
-        "TemporaryItems"
+        "TemporaryItems",
+        "com.apple.WorkflowKit.BackgroundShortcutRunner",
+        "com.apple.shortcuts",
+        "com.apple.shortcuts.runtime"
     ]
 
     /// Cartelle di cache di sviluppo o Xcode che hanno categorie dedicate e non devono essere duplicate nella scansione generica di Caches
