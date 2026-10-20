@@ -1,0 +1,13 @@
+{
+  "version": "1.0.2",
+  "build": 3,
+  "releaseDate": "2026-10-20",
+  "notes": {
+    "it": "Aggiornamento automatico nativo, ottimizzazioni thread per Mac Intel e protezione di sicurezza per Shortcuts.",
+    "en": "Native automatic updates, multithreaded cleaning optimizations for Intel Macs, and safety protections for Shortcuts."
+  },
+  "downloads": {
+    "universal": "https://raw.githubusercontent.com/marcovernetto-lgtm/Bathys/main/installers/Bathys-Universal-Intel-AppleSilicon.dmg",
+    "intelLegacy": "https://raw.githubusercontent.com/marcovernetto-lgtm/Bathys/main/installers/Bathys-Intel-macOS13-Ventura.dmg"
+  }
+}
