@@ -3,7 +3,8 @@ import AppKit
 
 struct SettingsSheetView: View {
     @Environment(\.dismiss) private var dismiss
-    @State private var settings = AppSettings.shared
+    @ObservedObject private var settings = AppSettings.shared
+    @ObservedObject private var updateManager = UpdateManager.shared
     @State private var isPlayingTestChime = false
 
     var isItalian: Bool {
@@ -302,6 +303,175 @@ struct SettingsSheetView: View {
                             }
                         }
                     }
+
+                    // 4. SEZIONE AGGIORNAMENTI SOFTWARE
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text(isItalian ? "AGGIORNAMENTI SOFTWARE" : "SOFTWARE UPDATES")
+                            .font(.system(size: 11, weight: .semibold, design: .rounded))
+                            .foregroundStyle(BathysPalette.sky.opacity(0.85))
+                            .tracking(1.0)
+                            .padding(.leading, 4)
+
+                        ModernSectionGroup {
+                            HStack(spacing: 16) {
+                                Image(systemName: "arrow.triangle.2.circlepath.circle.fill")
+                                    .font(.system(size: 16, weight: .medium))
+                                    .foregroundStyle(BathysPalette.sky)
+                                    .frame(width: 24)
+
+                                VStack(alignment: .leading, spacing: 2) {
+                                    HStack(spacing: 8) {
+                                        Text("Bathys v\(updateManager.currentVersion)")
+                                            .font(.system(size: 13.5, weight: .semibold))
+                                            .foregroundStyle(Color.white)
+
+                                        switch updateManager.status {
+                                        case .upToDate:
+                                            Text(isItalian ? "AGGIORNATO ✓" : "UP TO DATE ✓")
+                                                .font(.system(size: 9.5, weight: .bold))
+                                                .foregroundStyle(BathysPalette.emerald)
+                                                .padding(.horizontal, 6)
+                                                .padding(.vertical, 2)
+                                                .background(Capsule().fill(BathysPalette.emerald.opacity(0.18)))
+                                        case .available(let ver, _, _):
+                                            Text("v\(ver) " + (isItalian ? "DISPONIBILE" : "AVAILABLE"))
+                                                .font(.system(size: 9.5, weight: .bold))
+                                                .foregroundStyle(BathysPalette.amber)
+                                                .padding(.horizontal, 6)
+                                                .padding(.vertical, 2)
+                                                .background(Capsule().fill(BathysPalette.amber.opacity(0.18)))
+                                        case .readyToRestart:
+                                            Text(isItalian ? "PRONTO AL RIAVVIO" : "READY TO RESTART")
+                                                .font(.system(size: 9.5, weight: .bold))
+                                                .foregroundStyle(BathysPalette.sky)
+                                                .padding(.horizontal, 6)
+                                                .padding(.vertical, 2)
+                                                .background(Capsule().fill(BathysPalette.sky.opacity(0.18)))
+                                        default:
+                                            EmptyView()
+                                        }
+                                    }
+
+                                    switch updateManager.status {
+                                    case .idle:
+                                        Text(isItalian ? "Verifica automatica attiva all'avvio dell'applicazione" : "Automatic update check enabled on launch")
+                                            .font(.system(size: 11.5, weight: .regular))
+                                            .foregroundStyle(BathysPalette.textSecondary)
+                                    case .checking:
+                                        Text(isItalian ? "Connessione al server di rilascio in corso..." : "Connecting to update server...")
+                                            .font(.system(size: 11.5, weight: .regular))
+                                            .foregroundStyle(BathysPalette.sky)
+                                    case .upToDate:
+                                        Text(isItalian ? "Stai utilizzando l'ultima versione disponibile." : "You are using the latest version available.")
+                                            .font(.system(size: 11.5, weight: .regular))
+                                            .foregroundStyle(BathysPalette.textSecondary)
+                                    case .available(_, let notes, _):
+                                        Text(notes)
+                                            .font(.system(size: 11.5, weight: .regular))
+                                            .foregroundStyle(Color.white.opacity(0.9))
+                                            .lineLimit(2)
+                                    case .downloading(let progress):
+                                        Text(isItalian ? "Download e installazione: \(Int(progress * 100))%" : "Downloading and installing: \(Int(progress * 100))%")
+                                            .font(.system(size: 11.5, weight: .medium))
+                                            .foregroundStyle(BathysPalette.sky)
+                                    case .readyToRestart:
+                                        Text(isItalian ? "Nuova versione installata con successo. Riavvia Bathys per completare." : "New version installed. Relaunch Bathys to complete.")
+                                            .font(.system(size: 11.5, weight: .regular))
+                                            .foregroundStyle(BathysPalette.emerald)
+                                    case .error(let msg):
+                                        Text(msg)
+                                            .font(.system(size: 11.5, weight: .regular))
+                                            .foregroundStyle(Color.red.opacity(0.9))
+                                            .lineLimit(2)
+                                    }
+                                }
+
+                                Spacer()
+
+                                switch updateManager.status {
+                                    case .idle, .upToDate:
+                                        Button {
+                                            updateManager.checkForUpdates(silent: false)
+                                        } label: {
+                                            HStack(spacing: 6) {
+                                                Image(systemName: "arrow.triangle.2.circlepath")
+                                                    .font(.system(size: 11, weight: .semibold))
+                                                Text(isItalian ? "Verifica ora" : "Check now")
+                                                    .font(.system(size: 12, weight: .medium))
+                                            }
+                                            .padding(.horizontal, 12)
+                                            .padding(.vertical, 6)
+                                            .background(Capsule().fill(BathysPalette.sky.opacity(0.12)))
+                                            .overlay(Capsule().strokeBorder(BathysPalette.sky.opacity(0.40), lineWidth: 1))
+                                            .foregroundStyle(BathysPalette.sky)
+                                        }
+                                        .buttonStyle(.plain)
+
+                                    case .checking:
+                                        ProgressView()
+                                            .controlSize(.small)
+                                            .frame(width: 80)
+
+                                    case .available:
+                                        Button {
+                                            updateManager.downloadAndInstallUpdate()
+                                        } label: {
+                                            HStack(spacing: 6) {
+                                                Image(systemName: "arrow.down.circle.fill")
+                                                    .font(.system(size: 11.5, weight: .semibold))
+                                                Text(isItalian ? "Aggiorna ora" : "Update now")
+                                                    .font(.system(size: 12, weight: .bold))
+                                            }
+                                            .padding(.horizontal, 14)
+                                            .padding(.vertical, 6)
+                                            .background(Capsule().fill(BathysPalette.emerald.opacity(0.28)))
+                                            .overlay(Capsule().strokeBorder(BathysPalette.emerald, lineWidth: 1))
+                                            .foregroundStyle(Color.white)
+                                        }
+                                        .buttonStyle(.plain)
+
+                                    case .downloading(let progress):
+                                        ProgressView(value: progress)
+                                            .progressViewStyle(.linear)
+                                            .frame(width: 100)
+                                            .tint(BathysPalette.sky)
+
+                                    case .readyToRestart:
+                                        Button {
+                                            updateManager.relaunchApplication()
+                                        } label: {
+                                            HStack(spacing: 6) {
+                                                Image(systemName: "arrow.clockwise.circle.fill")
+                                                    .font(.system(size: 11.5, weight: .bold))
+                                                Text(isItalian ? "Riavvia ora" : "Relaunch now")
+                                                    .font(.system(size: 12, weight: .bold))
+                                            }
+                                            .padding(.horizontal, 14)
+                                            .padding(.vertical, 6)
+                                            .background(Capsule().fill(BathysPalette.emerald.opacity(0.35)))
+                                            .overlay(Capsule().strokeBorder(BathysPalette.emerald, lineWidth: 1))
+                                            .foregroundStyle(Color.white)
+                                        }
+                                        .buttonStyle(.plain)
+
+                                    case .error:
+                                        Button {
+                                            updateManager.checkForUpdates(silent: false)
+                                        } label: {
+                                            Text(isItalian ? "Riprova" : "Retry")
+                                                .font(.system(size: 12, weight: .medium))
+                                                .padding(.horizontal, 12)
+                                                .padding(.vertical, 6)
+                                                .background(Capsule().fill(Color.red.opacity(0.15)))
+                                                .overlay(Capsule().strokeBorder(Color.red.opacity(0.5), lineWidth: 1))
+                                                .foregroundStyle(Color.white)
+                                        }
+                                        .buttonStyle(.plain)
+                                }
+                            }
+                            .padding(.vertical, 6)
+                        }
+                    }
                 }
                 .padding(.horizontal, 32)
                 .padding(.top, 16)
@@ -318,7 +488,7 @@ struct SettingsSheetView: View {
                             .fill(BathysPalette.emerald)
                             .frame(width: 7, height: 7)
 
-                        Text("Bathys ⚓️ v1.0 • Universal (Apple Silicon & Intel)")
+                        Text("Bathys ⚓️ v\(updateManager.currentVersion) • Intel Legacy (macOS 13 Ventura)")
                             .font(.system(size: 11.5, weight: .medium))
                             .foregroundStyle(BathysPalette.textMuted)
                     }
@@ -348,7 +518,7 @@ struct SettingsSheetView: View {
                 .padding(.vertical, 16)
             }
         }
-        .frame(width: 740, height: 630)
+        .frame(width: 740, height: 710)
     }
 }
 

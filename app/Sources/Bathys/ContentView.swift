@@ -129,6 +129,7 @@ struct ContentView: View {
     @State private var showPrivacySheet = false
     @State private var showSettingsSheet = false
     @ObservedObject private var settings = AppSettings.shared
+    @ObservedObject private var updateManager = UpdateManager.shared
 
     init(autoScan: Bool = false, initialMode: BathysMode? = nil) {
         self.autoScan = autoScan
@@ -202,6 +203,10 @@ struct ContentView: View {
             permissionManager.checkPermissions()
             if !permissionManager.hasSeenPrivacyOnboarding || CommandLine.arguments.contains("--privacy-sheet") {
                 showPrivacySheet = true
+            }
+
+            DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
+                UpdateManager.shared.checkForUpdates(silent: true)
             }
 
             activeMode = initialMode
@@ -356,6 +361,51 @@ struct ContentView: View {
                     .overlay(Capsule().strokeBorder(permissionManager.hasFullDiskAccess ? BathysPalette.hairline : BathysPalette.amber.opacity(0.35), lineWidth: 1))
                 }
                 .buttonStyle(.plain)
+
+                // Update Notification Pill (when update is available, downloading, or ready to restart)
+                if updateManager.showUpdateBanner || (updateManager.status != .idle && updateManager.status != .upToDate && updateManager.status != .checking) {
+                    Button {
+                        if case .readyToRestart = updateManager.status {
+                            updateManager.relaunchApplication()
+                        } else {
+                            showSettingsSheet = true
+                        }
+                    } label: {
+                        HStack(spacing: 6) {
+                            switch updateManager.status {
+                            case .readyToRestart:
+                                Image(systemName: "arrow.clockwise.circle.fill")
+                                    .font(.system(size: 11.5, weight: .bold))
+                                    .foregroundStyle(BathysPalette.emerald)
+                                Text(L10n.lang == .italian ? "Riavvia per completare" : "Restart to complete")
+                                    .font(.system(size: 12, weight: .semibold))
+                                    .foregroundStyle(Color.white)
+                            case .downloading(let progress):
+                                ProgressView()
+                                    .controlSize(.mini)
+                                Text(L10n.lang == .italian ? "Download \(Int(progress * 100))%" : "Downloading \(Int(progress * 100))%")
+                                    .font(.system(size: 12, weight: .medium))
+                                    .foregroundStyle(BathysPalette.sky)
+                            case .available(let ver, _, _):
+                                Image(systemName: "sparkles")
+                                    .font(.system(size: 11.5, weight: .bold))
+                                    .foregroundStyle(BathysPalette.amber)
+                                Text("v\(ver) " + (L10n.lang == .italian ? "disponibile" : "available"))
+                                    .font(.system(size: 12, weight: .semibold))
+                                    .foregroundStyle(Color.white)
+                            default:
+                                EmptyView()
+                            }
+                        }
+                        .padding(.horizontal, 13)
+                        .padding(.vertical, 7)
+                        .frame(height: 34)
+                        .background(Capsule().fill(BathysPalette.sky.opacity(0.16)))
+                        .overlay(Capsule().strokeBorder(BathysPalette.sky.opacity(0.45), lineWidth: 1))
+                    }
+                    .buttonStyle(.plain)
+                    .transition(.opacity.combined(with: .scale(scale: 0.96)))
+                }
 
                 // Circular Settings Button
                 BathysRoundIconButton(
