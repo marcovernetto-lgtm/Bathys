@@ -500,88 +500,95 @@ final class Scanner: ObservableObject {
         isCleaning = true
         showCleanConfirmation = false
 
+        let selectedCats = categories
+
         Task {
-            var freed: Int64 = 0
-            var count = 0
-            var updatedCategories: [(index: Int, items: [DiscoveredItem], bytes: Int64)] = []
+            // Esegui tutto il lavoro pesante di I/O (spostamento file, riciclo e ricalcoli) su un thread di background separato dal Main Thread
+            let cleanResult = await Task.detached(priority: .userInitiated) { () -> (freed: Int64, count: Int, updates: [(index: Int, items: [DiscoveredItem], bytes: Int64)]) in
+                var freed: Int64 = 0
+                var count = 0
+                var updatedCategories: [(index: Int, items: [DiscoveredItem], bytes: Int64)] = []
 
-            for catIndex in categories.indices {
-                guard categories[catIndex].isSelected, categories[catIndex].bytes > 0 else { continue }
-                let isTrashCategory = categories[catIndex].id == "trash"
+                for catIndex in selectedCats.indices {
+                    guard selectedCats[catIndex].isSelected, selectedCats[catIndex].bytes > 0 else { continue }
+                    let isTrashCategory = selectedCats[catIndex].id == "trash"
 
-                var remainingItems: [DiscoveredItem] = []
-                for item in categories[catIndex].topItems {
-                    if item.isSelected {
-                        var failedPaths: [String] = []
+                    var remainingItems: [DiscoveredItem] = []
+                    for item in selectedCats[catIndex].topItems {
+                        if item.isSelected {
+                            var failedPaths: [String] = []
 
-                        for targetPath in item.targetPaths {
-                            // Supporto per la compattazione nativa Apple symbolscache (coresymbolicationd)
-                            if targetPath == "symbolscache://compact" {
-                                if MacSafetyIntelligence.sandboxRootURL == nil {
-                                    let p = Process()
-                                    p.executableURL = URL(fileURLWithPath: "/usr/bin/symbolscache")
-                                    p.arguments = ["compact", "--free-capacity", "256"]
-                                    try? p.run()
-                                    p.waitUntilExit()
+                            for targetPath in item.targetPaths {
+                                // Supporto per la compattazione nativa Apple symbolscache (coresymbolicationd)
+                                if targetPath == "symbolscache://compact" {
+                                    if MacSafetyIntelligence.sandboxRootURL == nil {
+                                        let p = Process()
+                                        p.executableURL = URL(fileURLWithPath: "/usr/bin/symbolscache")
+                                        p.arguments = ["compact", "--free-capacity", "256"]
+                                        try? p.run()
+                                        p.waitUntilExit()
+                                    }
+                                    count += 1
+                                    continue
                                 }
-                                count += 1
-                                continue
+
+                                // Controllo di sicurezza macOS assoluto: mai toccare cartelle di sistema o personali
+                                guard !MacSafetyIntelligence.isForbiddenToDelete(path: targetPath) else {
+                                    failedPaths.append(targetPath)
+                                    continue
+                                }
+
+                                let url = URL(fileURLWithPath: targetPath)
+                                if Scanner.safeTrashOrRemove(url: url, isTrashCategory: isTrashCategory) {
+                                    count += 1
+                                } else {
+                                    failedPaths.append(targetPath)
+                                }
                             }
 
-                            // Controllo di sicurezza macOS assoluto: mai toccare cartelle di sistema o personali
-                            guard !MacSafetyIntelligence.isForbiddenToDelete(path: targetPath) else {
-                                failedPaths.append(targetPath)
-                                continue
-                            }
-
-                            let url = URL(fileURLWithPath: targetPath)
-                            if Self.safeTrashOrRemove(url: url, isTrashCategory: isTrashCategory) {
-                                count += 1
+                            if failedPaths.isEmpty {
+                                freed += item.bytes
                             } else {
-                                failedPaths.append(targetPath)
-                            }
-                        }
-
-                        if failedPaths.isEmpty {
-                            freed += item.bytes
-                        } else {
-                            // Ricalcola la dimensione reale dei soli file che non è stato possibile rimuovere
-                            let remainingBytes = failedPaths.reduce(Int64(0)) { acc, fp in
-                                acc + UninstallerEngine.computeAllocatedSize(at: URL(fileURLWithPath: fp))
-                            }
-                            let itemFreed = max(0, item.bytes - remainingBytes)
-                            freed += itemFreed
-                            if remainingBytes > 0 {
-                                remainingItems.append(
-                                    DiscoveredItem(
-                                        name: item.name,
-                                        path: failedPaths[0],
-                                        targetPaths: failedPaths,
-                                        safetyNote: item.safetyNote,
-                                        bytes: remainingBytes,
-                                        isSelected: item.isSelected
+                                // Ricalcola la dimensione reale dei soli file che non è stato possibile rimuovere
+                                let remainingBytes = failedPaths.reduce(Int64(0)) { acc, fp in
+                                    acc + UninstallerEngine.computeAllocatedSize(at: URL(fileURLWithPath: fp))
+                                }
+                                let itemFreed = max(0, item.bytes - remainingBytes)
+                                freed += itemFreed
+                                if remainingBytes > 0 {
+                                    remainingItems.append(
+                                        DiscoveredItem(
+                                            name: item.name,
+                                            path: failedPaths[0],
+                                            targetPaths: failedPaths,
+                                            safetyNote: item.safetyNote,
+                                            bytes: remainingBytes,
+                                            isSelected: item.isSelected
+                                        )
                                     )
-                                )
+                                }
                             }
+                        } else {
+                            remainingItems.append(item)
                         }
-                    } else {
-                        remainingItems.append(item)
                     }
+
+                    updatedCategories.append((index: catIndex, items: remainingItems, bytes: remainingItems.reduce(0) { $0 + $1.bytes }))
                 }
 
-                updatedCategories.append((index: catIndex, items: remainingItems, bytes: remainingItems.reduce(0) { $0 + $1.bytes }))
-            }
+                return (freed, count, updatedCategories)
+            }.value
 
-            // Pausa calibrata (1.4s) per consentire l'animazione visiva di aspirazione e recupero dei rifiuti da parte del sottomarino
-            try? await Task.sleep(nanoseconds: 1_400_000_000)
+            // Pausa calibrata per consentire l'animazione visiva fluida di recupero
+            try? await Task.sleep(nanoseconds: 1_200_000_000)
 
-            for update in updatedCategories {
+            for update in cleanResult.updates {
                 categories[update.index].topItems = update.items
                 categories[update.index].bytes = update.bytes
             }
 
-            lastCleanedBytes = freed
-            lastCleanedCount = count
+            lastCleanedBytes = cleanResult.freed
+            lastCleanedCount = cleanResult.count
             isCleaning = false
             hasCleaned = true
             SoundManager.shared.playChime()
@@ -589,7 +596,7 @@ final class Scanner: ObservableObject {
             // Sequenza di Riemersione: il batiscafo risale fluidamente verso la superficie
             isResurfacing = true
             resurfaceStartedAt = .now
-            let totalAscentTime: Double = 2.0 // 2 secondi per risalire dolcemente in superficie
+            let totalAscentTime: Double = 2.0
             try? await Task.sleep(for: .seconds(totalAscentTime))
 
             self.depth = 0.0
