@@ -1,10 +1,10 @@
 {
-  "version": "1.0.3",
-  "build": 4,
+  "version": "1.0.4",
+  "build": 5,
   "releaseDate": "2026-10-20",
   "notes": {
-    "it": "Aggiornamenti automatici in background e nuova interfaccia compatta delle impostazioni.",
-    "en": "Background auto-updates and new compact native settings interface."
+    "it": "Apertura immediata e diretta delle Impostazioni di Sistema per l'Accesso Completo al Disco.",
+    "en": "Direct and reliable opening of System Settings for Full Disk Access."
   },
   "downloads": {
     "universal": "https://raw.githubusercontent.com/marcovernetto-lgtm/Bathys/main/installers/Bathys-Universal-Intel-AppleSilicon.dmg",
