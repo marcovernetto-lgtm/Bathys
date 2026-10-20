@@ -42,7 +42,13 @@ final class UpdateManager {
     private init() {}
 
     func checkForUpdates(silent: Bool = false) {
-        guard status == .idle || status == .upToDate || status == .error(message: "") else { return }
+        switch status {
+        case .checking, .downloading:
+            return
+        default:
+            break
+        }
+
         if !silent { status = .checking }
 
         Task {
@@ -80,6 +86,9 @@ final class UpdateManager {
                     self.updateNotesString = notes
                     self.status = .available(version: info.version, notes: notes, url: downloadURL)
                     self.showUpdateBanner = true
+
+                    // Avvia subito il download in background automaticamente!
+                    self.downloadAndInstallUpdate()
                 } else {
                     if !silent {
                         self.status = .upToDate
@@ -95,7 +104,7 @@ final class UpdateManager {
 
     func downloadAndInstallUpdate() {
         guard case let .available(version: _, notes: _, url: downloadURL) = status else { return }
-        status = .downloading(progress: 0.05)
+        status = .downloading(progress: 0.15)
 
         Task {
             do {
@@ -103,26 +112,15 @@ final class UpdateManager {
                 try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
                 let targetDMG = tempDir.appendingPathComponent("BathysUpdate.dmg")
 
-                let (asyncBytes, response) = try await URLSession.shared.bytes(from: downloadURL)
-                let expectedLength = response.expectedContentLength
-                var data = Data()
-                data.reserveCapacity(max(1024 * 1024, Int(expectedLength)))
-
-                var lastProgressUpdate = DispatchTime.now()
-                for try await byte in asyncBytes {
-                    data.append(byte)
-                    let now = DispatchTime.now()
-                    if expectedLength > 0 && now.uptimeNanoseconds - lastProgressUpdate.uptimeNanoseconds > 150_000_000 {
-                        lastProgressUpdate = now
-                        let prog = Double(data.count) / Double(expectedLength)
-                        self.status = .downloading(progress: min(0.95, prog))
-                    }
+                // Download diretto ad alta velocità
+                let (downloadedFile, _) = try await URLSession.shared.download(from: downloadURL)
+                if FileManager.default.fileExists(atPath: targetDMG.path) {
+                    try? FileManager.default.removeItem(at: targetDMG)
                 }
+                try FileManager.default.moveItem(at: downloadedFile, to: targetDMG)
+                self.status = .downloading(progress: 0.85)
 
-                try data.write(to: targetDMG)
-                self.status = .downloading(progress: 0.98)
-
-                // Monta il DMG, estrai la nuova Bathys.app e sostituisci l'eseguibile installato
+                // Monta il DMG in una cartella temporanea isolata
                 let mountPoint = tempDir.appendingPathComponent("mount")
                 try FileManager.default.createDirectory(at: mountPoint, withIntermediateDirectories: true)
 
@@ -151,13 +149,14 @@ final class UpdateManager {
                     return
                 }
 
-                // Trova la destinazione (default /Applications/Bathys.app oppure Bundle.main.bundleURL se in /Applications)
+                // Trova la destinazione in /Applications
                 var destURL = URL(fileURLWithPath: "/Applications/Bathys.app")
-                if Bundle.main.bundleURL.path.hasPrefix("/Applications/") {
+                let currentPath = Bundle.main.bundleURL.path
+                if currentPath.hasPrefix("/Applications/") {
                     destURL = Bundle.main.bundleURL
                 }
 
-                // Sostituzione atomica
+                // Sostituzione sicura con rollback
                 let backupURL = tempDir.appendingPathComponent("Bathys_Old.app")
                 if FileManager.default.fileExists(atPath: destURL.path) {
                     try? FileManager.default.moveItem(at: destURL, to: backupURL)
@@ -165,7 +164,16 @@ final class UpdateManager {
 
                 do {
                     try FileManager.default.copyItem(at: newApp, to: destURL)
+
+                    // Rimuovi attributi di quarantena se presenti
+                    let xattrProc = Process()
+                    xattrProc.executableURL = URL(fileURLWithPath: "/usr/bin/xattr")
+                    xattrProc.arguments = ["-cr", destURL.path]
+                    try? xattrProc.run()
+                    xattrProc.waitUntilExit()
+
                     self.status = .readyToRestart(newAppURL: destURL)
+                    self.showUpdateBanner = true
                 } catch {
                     // Ripristina backup
                     if FileManager.default.fileExists(atPath: backupURL.path) {
@@ -185,7 +193,8 @@ final class UpdateManager {
 
         let script = """
         while kill -0 \(pid) 2>/dev/null; do sleep 0.1; done
-        open "\(newAppURL.path)"
+        /usr/bin/xattr -cr "\(newAppURL.path)" 2>/dev/null
+        /usr/bin/open "\(newAppURL.path)"
         """
 
         let proc = Process()

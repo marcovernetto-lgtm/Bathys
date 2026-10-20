@@ -1,10 +1,10 @@
 {
-  "version": "1.0.2",
-  "build": 3,
+  "version": "1.0.3",
+  "build": 4,
   "releaseDate": "2026-10-20",
   "notes": {
-    "it": "Aggiornamento automatico nativo, ottimizzazioni thread per Mac Intel e protezione di sicurezza per Shortcuts.",
-    "en": "Native automatic updates, multithreaded cleaning optimizations for Intel Macs, and safety protections for Shortcuts."
+    "it": "Aggiornamenti automatici in background e nuova interfaccia compatta delle impostazioni.",
+    "en": "Background auto-updates and new compact native settings interface."
   },
   "downloads": {
     "universal": "https://raw.githubusercontent.com/marcovernetto-lgtm/Bathys/main/installers/Bathys-Universal-Intel-AppleSilicon.dmg",
