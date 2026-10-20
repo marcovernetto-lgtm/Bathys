@@ -2878,12 +2878,18 @@ final class PermissionManager: ObservableObject {
     }
 
     func openSystemSettingsFullDiskAccess() {
-        if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles") {
-            NSWorkspace.shared.open(url)
-        }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
-            let appUrl = Bundle.main.bundleURL
-            NSWorkspace.shared.activateFileViewerSelecting([appUrl])
+        guard let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles") else { return }
+        let config = NSWorkspace.OpenConfiguration()
+        config.activates = true
+        NSWorkspace.shared.open(url, configuration: config) { app, error in
+            if let app {
+                app.activate(options: [.activateIgnoringOtherApps])
+            } else {
+                let proc = Process()
+                proc.executableURL = URL(fileURLWithPath: "/usr/bin/open")
+                proc.arguments = ["x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles"]
+                try? proc.run()
+            }
         }
     }
 }
