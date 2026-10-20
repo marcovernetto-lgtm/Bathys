@@ -32,14 +32,23 @@ final class UpdateManager {
     private let versionURL = URL(string: "https://raw.githubusercontent.com/marcovernetto-lgtm/Bathys/main/version.json")!
 
     var currentVersion: String {
-        Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "1.0.2"
+        Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "1.0.3"
     }
 
     var currentBuild: Int {
-        Int(Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "3") ?? 3
+        Int(Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "4") ?? 4
     }
 
     private init() {}
+
+    nonisolated private static func createRobustSession() -> URLSession {
+        let config = URLSessionConfiguration.default
+        config.timeoutIntervalForRequest = 90.0
+        config.timeoutIntervalForResource = 600.0
+        config.waitsForConnectivity = true
+        config.requestCachePolicy = .reloadIgnoringLocalAndRemoteCacheData
+        return URLSession(configuration: config)
+    }
 
     func checkForUpdates(silent: Bool = false) {
         switch status {
@@ -51,20 +60,28 @@ final class UpdateManager {
 
         if !silent { status = .checking }
 
-        Task {
-            do {
-                var request = URLRequest(url: versionURL)
-                request.cachePolicy = .reloadIgnoringLocalAndRemoteCacheData
-                request.timeoutInterval = 10.0
+        let curVer = currentVersion
+        let curBld = currentBuild
+        let targetURL = versionURL
+        let lang = AppSettings.shared.language.rawValue
 
-                let (data, response) = try await URLSession.shared.data(for: request)
+        Task.detached(priority: .userInitiated) {
+            do {
+                var request = URLRequest(url: targetURL)
+                request.cachePolicy = .reloadIgnoringLocalAndRemoteCacheData
+                request.timeoutInterval = 30.0
+
+                let session = UpdateManager.createRobustSession()
+                let (data, response) = try await session.data(for: request)
                 guard let http = response as? HTTPURLResponse, http.statusCode == 200 else {
-                    if !silent { status = .error(message: "Impossibile contattare il server di aggiornamento.") }
+                    await MainActor.run {
+                        if !silent { UpdateManager.shared.status = .error(message: "Impossibile contattare il server di aggiornamento.") }
+                    }
                     return
                 }
 
                 let info = try JSONDecoder().decode(RemoteVersionInfo.self, from: data)
-                let isNewer = isVersion(info.version, newerThan: currentVersion) || info.build > currentBuild
+                let isNewer = UpdateManager.compareVersion(info.version, newerThan: curVer) || info.build > curBld
 
                 if isNewer {
                     #if arch(x86_64)
@@ -75,28 +92,35 @@ final class UpdateManager {
 
                     let dlString = info.downloads[dlKey] ?? info.downloads["universal"] ?? ""
                     guard let downloadURL = URL(string: dlString) else {
-                        if !silent { status = .error(message: "URL di download non valido.") }
+                        await MainActor.run {
+                            if !silent { UpdateManager.shared.status = .error(message: "URL di download non valido.") }
+                        }
                         return
                     }
 
-                    let lang = AppSettings.shared.language.rawValue
                     let notes = info.notes[lang] ?? info.notes["it"] ?? info.notes["en"] ?? "Aggiornamento disponibile."
 
-                    self.availableVersionString = info.version
-                    self.updateNotesString = notes
-                    self.status = .available(version: info.version, notes: notes, url: downloadURL)
-                    self.showUpdateBanner = true
+                    await MainActor.run {
+                        UpdateManager.shared.availableVersionString = info.version
+                        UpdateManager.shared.updateNotesString = notes
+                        UpdateManager.shared.status = .available(version: info.version, notes: notes, url: downloadURL)
+                        UpdateManager.shared.showUpdateBanner = true
 
-                    // Avvia subito il download in background automaticamente!
-                    self.downloadAndInstallUpdate()
+                        // Avvia subito il download automatico in background
+                        UpdateManager.shared.downloadAndInstallUpdate()
+                    }
                 } else {
-                    if !silent {
-                        self.status = .upToDate
+                    await MainActor.run {
+                        if !silent {
+                            UpdateManager.shared.status = .upToDate
+                        }
                     }
                 }
             } catch {
-                if !silent {
-                    self.status = .error(message: error.localizedDescription)
+                await MainActor.run {
+                    if !silent {
+                        UpdateManager.shared.status = .error(message: error.localizedDescription)
+                    }
                 }
             }
         }
@@ -106,21 +130,28 @@ final class UpdateManager {
         guard case let .available(version: _, notes: _, url: downloadURL) = status else { return }
         status = .downloading(progress: 0.15)
 
-        Task {
+        let appBundleURL = Bundle.main.bundleURL
+
+        Task.detached(priority: .userInitiated) {
             do {
                 let tempDir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
                 try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
                 let targetDMG = tempDir.appendingPathComponent("BathysUpdate.dmg")
 
-                // Download diretto ad alta velocità
-                let (downloadedFile, _) = try await URLSession.shared.download(from: downloadURL)
+                // Download robusto in background con sessione dedicata
+                let session = UpdateManager.createRobustSession()
+                let (downloadedFile, _) = try await session.download(from: downloadURL)
+
                 if FileManager.default.fileExists(atPath: targetDMG.path) {
                     try? FileManager.default.removeItem(at: targetDMG)
                 }
                 try FileManager.default.moveItem(at: downloadedFile, to: targetDMG)
-                self.status = .downloading(progress: 0.85)
 
-                // Monta il DMG in una cartella temporanea isolata
+                await MainActor.run {
+                    UpdateManager.shared.status = .downloading(progress: 0.85)
+                }
+
+                // Monta il DMG in background senza bloccare la UI
                 let mountPoint = tempDir.appendingPathComponent("mount")
                 try FileManager.default.createDirectory(at: mountPoint, withIntermediateDirectories: true)
 
@@ -131,7 +162,9 @@ final class UpdateManager {
                 attachProc.waitUntilExit()
 
                 guard attachProc.terminationStatus == 0 else {
-                    self.status = .error(message: "Impossibile aprire l'immagine di aggiornamento.")
+                    await MainActor.run {
+                        UpdateManager.shared.status = .error(message: "Impossibile aprire l'immagine di aggiornamento.")
+                    }
                     return
                 }
 
@@ -145,15 +178,16 @@ final class UpdateManager {
 
                 let contents = (try? FileManager.default.contentsOfDirectory(at: mountPoint, includingPropertiesForKeys: nil)) ?? []
                 guard let newApp = contents.first(where: { $0.pathExtension == "app" }) else {
-                    self.status = .error(message: "Applicazione non trovata nell'aggiornamento.")
+                    await MainActor.run {
+                        UpdateManager.shared.status = .error(message: "Applicazione non trovata nell'aggiornamento.")
+                    }
                     return
                 }
 
-                // Trova la destinazione in /Applications
+                // Destinazione sicura
                 var destURL = URL(fileURLWithPath: "/Applications/Bathys.app")
-                let currentPath = Bundle.main.bundleURL.path
-                if currentPath.hasPrefix("/Applications/") {
-                    destURL = Bundle.main.bundleURL
+                if appBundleURL.path.hasPrefix("/Applications/") {
+                    destURL = appBundleURL
                 }
 
                 // Sostituzione sicura con rollback
@@ -165,24 +199,30 @@ final class UpdateManager {
                 do {
                     try FileManager.default.copyItem(at: newApp, to: destURL)
 
-                    // Rimuovi attributi di quarantena se presenti
+                    // Rimuovi attributi di quarantena
                     let xattrProc = Process()
                     xattrProc.executableURL = URL(fileURLWithPath: "/usr/bin/xattr")
                     xattrProc.arguments = ["-cr", destURL.path]
                     try? xattrProc.run()
                     xattrProc.waitUntilExit()
 
-                    self.status = .readyToRestart(newAppURL: destURL)
-                    self.showUpdateBanner = true
+                    let finalDestURL = destURL
+                    await MainActor.run {
+                        UpdateManager.shared.status = .readyToRestart(newAppURL: finalDestURL)
+                        UpdateManager.shared.showUpdateBanner = true
+                    }
                 } catch {
-                    // Ripristina backup
                     if FileManager.default.fileExists(atPath: backupURL.path) {
                         try? FileManager.default.moveItem(at: backupURL, to: destURL)
                     }
-                    self.status = .error(message: "Permessi insufficienti per aggiornare in /Applications.")
+                    await MainActor.run {
+                        UpdateManager.shared.status = .error(message: "Permessi insufficienti per aggiornare in /Applications.")
+                    }
                 }
             } catch {
-                self.status = .error(message: error.localizedDescription)
+                await MainActor.run {
+                    UpdateManager.shared.status = .error(message: error.localizedDescription)
+                }
             }
         }
     }
@@ -204,7 +244,7 @@ final class UpdateManager {
         exit(0)
     }
 
-    private func isVersion(_ v1: String, newerThan v2: String) -> Bool {
+    nonisolated static func compareVersion(_ v1: String, newerThan v2: String) -> Bool {
         let p1 = v1.trimmingCharacters(in: CharacterSet(charactersIn: "vV ")).split(separator: ".").compactMap { Int($0) }
         let p2 = v2.trimmingCharacters(in: CharacterSet(charactersIn: "vV ")).split(separator: ".").compactMap { Int($0) }
         let maxCount = max(p1.count, p2.count)
