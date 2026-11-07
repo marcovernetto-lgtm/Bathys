@@ -2,6 +2,26 @@ import Foundation
 import Observation
 import AppKit
 
+/// Verifica eseguita di nuovo al momento della pulizia: se l'app proprietaria della cache è aperta, la cache non si tocca.
+struct LiveAppGuard: Sendable {
+    /// Bundle ID esatti, oppure prefissi terminanti con "." (es. "com.adobe.")
+    var bundleIds: [String] = []
+    /// Cartella profilo Chromium/Electron: se contiene un SingletonLock di un processo vivo, l'app è aperta
+    var chromiumProfileDir: String? = nil
+
+    nonisolated func isOwnerRunning(runningIds: Set<String>) -> Bool {
+        for g in bundleIds {
+            for r in runningIds where r == g || (g.hasSuffix(".") && r.hasPrefix(g)) || g.hasPrefix(r + ".") {
+                return true
+            }
+        }
+        if let dir = chromiumProfileDir, MacSafetyIntelligence.chromiumProfileIsLocked(dir) {
+            return true
+        }
+        return false
+    }
+}
+
 struct DiscoveredItem: Identifiable, Sendable {
     let id = UUID()
     let name: String
@@ -10,6 +30,9 @@ struct DiscoveredItem: Identifiable, Sendable {
     let safetyNote: String?
     let bytes: Int64
     var isSelected: Bool = true
+    /// Consente di pulire cache che si trovano dentro le cartelle personali (es. ~/Movies/CacheClip di DaVinci Resolve)
+    let allowsUserContent: Bool
+    let liveGuard: LiveAppGuard?
 
     init(
         name: String,
@@ -17,7 +40,9 @@ struct DiscoveredItem: Identifiable, Sendable {
         targetPaths: [String]? = nil,
         safetyNote: String? = nil,
         bytes: Int64,
-        isSelected: Bool = true
+        isSelected: Bool = true,
+        allowsUserContent: Bool = false,
+        liveGuard: LiveAppGuard? = nil
     ) {
         self.name = name
         self.path = path
@@ -25,6 +50,8 @@ struct DiscoveredItem: Identifiable, Sendable {
         self.safetyNote = safetyNote
         self.bytes = bytes
         self.isSelected = isSelected
+        self.allowsUserContent = allowsUserContent
+        self.liveGuard = liveGuard
     }
 
     var formattedSize: String {
@@ -132,6 +159,11 @@ enum MacSafetyIntelligence {
         // Root del sistema e cartella home dell'utente non possono MAI essere cancellate
         if p == "/" || p == home || p == "/Users" { return true }
 
+        // Cartelle di primo livello del disco (/opt, /private, /cores, /Applications…) e home di altri utenti (/Users/nome)
+        let rootComponents = p.split(separator: "/")
+        if rootComponents.count == 1 { return true }
+        if rootComponents.count == 2 && rootComponents[0] == "Users" { return true }
+
         // Root di volumi montati (non cancellare mai il punto di mount del disco!)
         if p.hasPrefix("/Volumes/") {
             let components = p.split(separator: "/")
@@ -230,8 +262,47 @@ enum MacSafetyIntelligence {
         return ids
     }
 
+    /// True se Bathys ha l'Accesso Completo al Disco (il database TCC dell'utente è leggibile solo in quel caso)
+    nonisolated static func hasFullDiskAccess() -> Bool {
+        let home = FileManager.default.homeDirectoryForCurrentUser
+        let tccDB = home.appendingPathComponent("Library/Application Support/com.apple.TCC/TCC.db")
+        if let handle = try? FileHandle(forReadingFrom: tccDB) {
+            try? handle.close()
+            return true
+        }
+        let canaries = ["Library/Safari", "Library/Mail", "Library/Messages", "Library/Suggestions", "Library/Cookies"]
+        return canaries.contains { (try? FileManager.default.contentsOfDirectory(atPath: home.appendingPathComponent($0).path)) != nil }
+    }
+
+    /// Un profilo Chromium/Electron aperto contiene il link "SingletonLock" -> "nomehost-PID" di un processo vivo
+    nonisolated static func chromiumProfileIsLocked(_ profileDir: String) -> Bool {
+        let lock = (profileDir as NSString).appendingPathComponent("SingletonLock")
+        guard let dest = try? FileManager.default.destinationOfSymbolicLink(atPath: lock),
+              let pidText = dest.split(separator: "-").last,
+              let pid = Int32(pidText), pid > 0 else { return false }
+        return kill(pid, 0) == 0 || errno == EPERM
+    }
+
+    /// Nomi normalizzati delle app aperte (nome visibile e nome del pacchetto .app)
+    nonisolated static func activeRunningAppNames() -> Set<String> {
+        guard sandboxRootURL == nil else { return [] }
+        func norm(_ s: String) -> String { String(s.lowercased().unicodeScalars.filter { CharacterSet.alphanumerics.contains($0) }) }
+        var names: Set<String> = []
+        for app in NSWorkspace.shared.runningApplications where app.activationPolicy == .regular {
+            if let n = app.localizedName { names.insert(norm(n)) }
+            if let u = app.bundleURL { names.insert(norm(u.deletingPathExtension().lastPathComponent)) }
+        }
+        names.remove("")
+        return names
+    }
+
     /// Verifica se un elemento figlio dentro Caches, C o T deve essere protetto
-    nonisolated static func shouldSkipItem(at url: URL, insideDarwinTemp: Bool, isGeneralCaches: Bool = false) -> Bool {
+    nonisolated static func shouldSkipItem(
+        at url: URL,
+        insideDarwinTemp: Bool,
+        isGeneralCaches: Bool = false,
+        runningIds precomputedRunningIds: Set<String>? = nil
+    ) -> Bool {
         let name = url.lastPathComponent
         if name.hasPrefix(".") && name != ".Trash" { return true }
         if protectedCacheIdentifiers.contains(name) { return true }
@@ -243,7 +314,7 @@ enum MacSafetyIntelligence {
 
         // Protezione in tempo reale per le app attualmente aperte nel Dock (evita crash o disconnessioni di app in uso)
         if sandboxRootURL == nil {
-            let runningIds = activeRunningBundleIdentifiers()
+            let runningIds = precomputedRunningIds ?? activeRunningBundleIdentifiers()
             if runningIds.contains(lowerName) || runningIds.contains(lowerName.replacingOccurrences(of: ".savedstate", with: "")) {
                 return true
             }
@@ -326,6 +397,15 @@ final class Scanner {
                 urls: cachesURLs
             ),
             .init(
+                id: "appcaches",
+                title: "Cache delle App Installate",
+                titleEN: "Installed App Caches",
+                subtitle: "After Effects, Premiere, DaVinci Resolve, app Electron e sandbox • Mai con l'app aperta",
+                subtitleEN: "After Effects, Premiere, DaVinci Resolve, Electron and sandboxed apps • Never while the app is open",
+                symbol: "square.stack.3d.up.fill",
+                urls: [lib.appendingPathComponent("Application Support")]
+            ),
+            .init(
                 id: "temp",
                 title: "File Temporanei & Cache Darwin (C / T)",
                 titleEN: "Temporary Files & Darwin Cache (C / T)",
@@ -399,6 +479,17 @@ final class Scanner {
                 urls: [home.appendingPathComponent(".Trash")]
             )
         ]
+
+        // Lo svuotamento del Cestino è definitivo e irreversibile: la categoria è disattivata di default
+        // e deve essere scelta esplicitamente dall'utente.
+        if let trashIdx = categories.firstIndex(where: { $0.id == "trash" }) {
+            categories[trashIdx].isSelected = false
+        }
+    }
+
+    /// True se tra gli elementi selezionati c'è il contenuto del Cestino (eliminazione definitiva)
+    var includesPermanentTrashDeletion: Bool {
+        categories.contains { $0.id == "trash" && $0.isSelected && $0.selectedBytes > 0 }
     }
 
     func scan() {
@@ -434,15 +525,19 @@ final class Scanner {
                 depth = baseProgress + slice * 0.05
                 let begin = Date.now
                 let urls = categories[i].urls
+                let isAppCaches = categories[i].id == "appcaches"
 
                 let result = await Task.detached(priority: .userInitiated) {
-                    Scanner.measure(urls) { path, count in
+                    let report: @Sendable (String, Int) -> Void = { path, count in
                         Task { @MainActor in
                             self.currentPath = path
                             let subRatio = min(0.85, Double(count) * 0.02)
                             self.depth = baseProgress + slice * (0.05 + subRatio)
                         }
                     }
+                    return isAppCaches
+                        ? Scanner.measureInstalledAppCaches(progress: report)
+                        : Scanner.measure(urls, progress: report)
                 }.value
 
                 let elapsed = Date.now.timeIntervalSince(begin)
@@ -466,32 +561,9 @@ final class Scanner {
     }
 
     nonisolated private static func safeTrashOrRemove(url: URL, isTrashCategory: Bool) -> Bool {
-        let fm = FileManager.default
-        if let sandbox = MacSafetyIntelligence.sandboxRootURL {
-            // In modalità sandbox di test: non spostare mai nulla fuori dalla cartella sandbox!
-            guard url.standardizedFileURL.path.hasPrefix(sandbox.path) else { return false }
-            return (try? fm.removeItem(at: url)) != nil
-        }
-
-        if isTrashCategory {
-            return (try? fm.removeItem(at: url)) != nil
-        }
-
-        do {
-            try fm.trashItem(at: url, resultingItemURL: nil)
-            return true
-        } catch {
-            let sema = DispatchSemaphore(value: 0)
-            var recycled = false
-            NSWorkspace.shared.recycle([url]) { dict, err in
-                if err == nil && !dict.isEmpty {
-                    recycled = true
-                }
-                sema.signal()
-            }
-            _ = sema.wait(timeout: .now() + 2.0)
-            return recycled || !fm.fileExists(atPath: url.path)
-        }
+        // Nessun fallback su NSWorkspace.recycle nella pulizia massiva: eviterebbe attese di secondi
+        // per ogni file protetto e potrebbe generare richieste di password a raffica dal Finder.
+        SafeFileOps.moveToTrash(url, permanently: isTrashCategory, allowWorkspaceFallback: false)
     }
 
     /// Sposta in sicurezza gli elementi interni selezionati nel Cestino preservando sempre le cartelle strutturali (0, C, T, X, Caches, Logs).
@@ -509,6 +581,9 @@ final class Scanner {
                 var count = 0
                 var updatedCategories: [(index: Int, items: [DiscoveredItem], bytes: Int64)] = []
 
+                // Stato delle app aperte rilevato ADESSO (non al momento della scansione)
+                let runningNow = MacSafetyIntelligence.activeRunningBundleIdentifiers()
+
                 for catIndex in selectedCats.indices {
                     guard selectedCats[catIndex].isSelected, selectedCats[catIndex].bytes > 0 else { continue }
                     let isTrashCategory = selectedCats[catIndex].id == "trash"
@@ -517,23 +592,34 @@ final class Scanner {
                     for item in selectedCats[catIndex].topItems {
                         if item.isSelected {
                             var failedPaths: [String] = []
+                            var symbolsFreed: Int64 = 0
+                            let isSymbolsCacheItem = item.targetPaths == ["symbolscache://compact"]
+                            // Se nel frattempo l'utente ha aperto l'app proprietaria, la sua cache viene lasciata intatta
+                            let ownerRunning = item.liveGuard?.isOwnerRunning(runningIds: runningNow) ?? false
 
-                            for targetPath in item.targetPaths {
+                            if ownerRunning { failedPaths = item.targetPaths }
+                            let pathsToProcess = ownerRunning ? [] : item.targetPaths
+
+                            for targetPath in pathsToProcess {
                                 // Supporto per la compattazione nativa Apple symbolscache (coresymbolicationd)
                                 if targetPath == "symbolscache://compact" {
                                     if MacSafetyIntelligence.sandboxRootURL == nil {
-                                        let p = Process()
-                                        p.executableURL = URL(fileURLWithPath: "/usr/bin/symbolscache")
-                                        p.arguments = ["compact", "--free-capacity", "256"]
-                                        try? p.run()
-                                        p.waitUntilExit()
+                                        let before = Scanner.getSymbolscacheBytes()
+                                        let result = SafeFileOps.runProcess("/usr/bin/symbolscache", ["compact", "--free-capacity", "256"], timeout: 120)
+                                        let after = Scanner.getSymbolscacheBytes()
+                                        if result?.status == 0 {
+                                            count += 1
+                                            // Conta solo lo spazio realmente recuperato dalla compattazione
+                                            symbolsFreed += max(0, before - after)
+                                        } else {
+                                            failedPaths.append(targetPath)
+                                        }
                                     }
-                                    count += 1
                                     continue
                                 }
 
                                 // Controllo di sicurezza macOS assoluto: mai toccare cartelle di sistema o personali
-                                guard !MacSafetyIntelligence.isForbiddenToDelete(path: targetPath) else {
+                                guard !MacSafetyIntelligence.isForbiddenToDelete(path: targetPath, allowUserContent: item.allowsUserContent) else {
                                     failedPaths.append(targetPath)
                                     continue
                                 }
@@ -546,7 +632,10 @@ final class Scanner {
                                 }
                             }
 
-                            if failedPaths.isEmpty {
+                            if isSymbolsCacheItem {
+                                // La cache simboli non viene eliminata ma compattata: il valore rilevato è la sua dimensione totale
+                                freed += symbolsFreed
+                            } else if failedPaths.isEmpty {
                                 freed += item.bytes
                             } else {
                                 // Ricalcola la dimensione reale dei soli file che non è stato possibile rimuovere
@@ -563,7 +652,9 @@ final class Scanner {
                                             targetPaths: failedPaths,
                                             safetyNote: item.safetyNote,
                                             bytes: remainingBytes,
-                                            isSelected: item.isSelected
+                                            isSelected: item.isSelected,
+                                            allowsUserContent: item.allowsUserContent,
+                                            liveGuard: item.liveGuard
                                         )
                                     )
                                 }
@@ -607,44 +698,28 @@ final class Scanner {
 
     nonisolated static func getSymbolscacheBytes() -> Int64 {
         if MacSafetyIntelligence.sandboxRootURL != nil { return 0 }
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/symbolscache")
-        process.arguments = ["status"]
-        let pipe = Pipe()
-        process.standardOutput = pipe
-        process.standardError = Pipe()
-        do {
-            try process.run()
-            process.waitUntilExit()
-            let data = pipe.fileHandleForReading.readDataToEndOfFile()
-            if let output = String(data: data, encoding: .utf8) {
-                for line in output.components(separatedBy: "\n") {
-                    if line.contains("bytes total:") {
-                        let parts = line.components(separatedBy: ":")
-                        if parts.count > 1 {
-                            let raw = parts[1].trimmingCharacters(in: .whitespacesAndNewlines)
-                            let tokens = raw.split(separator: " ")
-                            if tokens.count >= 2, let val = Double(tokens[0]) {
-                                let unit = tokens[1].uppercased()
-                                if unit.hasPrefix("GB") {
-                                    return Int64(val * 1_000_000_000)
-                                } else if unit.hasPrefix("MB") {
-                                    return Int64(val * 1_000_000)
-                                } else if unit.hasPrefix("KB") {
-                                    return Int64(val * 1_000)
-                                } else if unit.hasPrefix("B") {
-                                    return Int64(val)
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        } catch {
-            return 0
+        guard let result = SafeFileOps.runProcess("/usr/bin/symbolscache", ["status"], timeout: 15),
+              result.status == 0 else { return 0 }
+        for line in result.output.components(separatedBy: "\n") where line.contains("bytes total:") {
+            let parts = line.components(separatedBy: ":")
+            guard parts.count > 1 else { continue }
+            let tokens = parts[1].trimmingCharacters(in: .whitespacesAndNewlines).split(separator: " ")
+            guard tokens.count >= 2, let val = Double(tokens[0].replacingOccurrences(of: ",", with: ".")) else { continue }
+            let unit = tokens[1].uppercased()
+            if unit.hasPrefix("TB") { return Int64(val * 1_000_000_000_000) }
+            if unit.hasPrefix("GB") { return Int64(val * 1_000_000_000) }
+            if unit.hasPrefix("MB") { return Int64(val * 1_000_000) }
+            if unit.hasPrefix("KB") { return Int64(val * 1_000) }
+            if unit.hasPrefix("B") { return Int64(val) }
         }
         return 0
     }
+
+    /// Cartelle cache dei browser Chromium che non devono essere svuotate mentre il browser è aperto
+    nonisolated private static let browserCacheRoots: [(pathFragment: String, bundleId: String)] = [
+        ("Application Support/Google/Chrome/", "com.google.chrome"),
+        ("Application Support/Arc/", "company.thebrowser.browser")
+    ]
 
     nonisolated static func measure(
         _ urls: [URL],
@@ -673,10 +748,23 @@ final class Scanner {
 
         var childBuckets: [String: GroupBucket] = [:]
         var lastReport = DispatchTime.now()
+        // Calcolato una sola volta per scansione (prima veniva interrogato NSWorkspace per ogni singolo file)
+        let runningIds = MacSafetyIntelligence.activeRunningBundleIdentifiers()
+        // Radici della stessa categoria: se una radice è contenuta in un'altra (es. Logs e Logs/DiagnosticReports)
+        // la sottocartella viene contata solo una volta, evitando il doppio conteggio dei byte.
+        let rootPaths = Set(urls.map { $0.standardizedFileURL.path })
         let darwinTempPath = (MacSafetyIntelligence.sandboxRootURL?.appendingPathComponent("var/folders/T") ?? fm.temporaryDirectory).standardizedFileURL.path
 
         for root in urls where fm.fileExists(atPath: root.path) {
             let stdRootPath = root.standardizedFileURL.path
+
+            // Non toccare le cache di un browser Chromium mentre è aperto (rischio di corruzione del profilo)
+            if MacSafetyIntelligence.sandboxRootURL == nil,
+               let browser = browserCacheRoots.first(where: { stdRootPath.contains($0.pathFragment) }),
+               runningIds.contains(browser.bundleId) {
+                continue
+            }
+
             let isDarwinTempRoot = stdRootPath == darwinTempPath || root.lastPathComponent == "T"
             let isDarwinCacheRoot = root.lastPathComponent == "C" && stdRootPath.contains("/var/folders/")
             let isGeneralCachesRoot = root.lastPathComponent == "Caches"
@@ -693,7 +781,15 @@ final class Scanner {
             var looseTempBytes: Int64 = 0
 
             for child in contents {
-                if MacSafetyIntelligence.shouldSkipItem(at: child, insideDarwinTemp: isDarwinTempRoot, isGeneralCaches: isGeneralCachesRoot) {
+                if rootPaths.contains(child.standardizedFileURL.path) {
+                    continue
+                }
+                if MacSafetyIntelligence.shouldSkipItem(
+                    at: child,
+                    insideDarwinTemp: isDarwinTempRoot,
+                    isGeneralCaches: isGeneralCachesRoot,
+                    runningIds: runningIds
+                ) {
                     continue
                 }
 

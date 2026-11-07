@@ -9,7 +9,7 @@ enum NodeSafetyRule: Sendable, Equatable {
 }
 
 struct DiskNode: Identifiable, Sendable {
-    let id = UUID()
+    let id: UUID
     let name: String
     let path: String
     let targetPaths: [String]
@@ -19,6 +19,7 @@ struct DiskNode: Identifiable, Sendable {
     var children: [DiskNode]
 
     init(
+        id: UUID = UUID(),
         name: String,
         path: String,
         targetPaths: [String]? = nil,
@@ -27,6 +28,7 @@ struct DiskNode: Identifiable, Sendable {
         colorIndex: Int,
         children: [DiskNode]
     ) {
+        self.id = id
         self.name = name
         self.path = path
         self.targetPaths = targetPaths ?? [path]
@@ -43,6 +45,56 @@ struct DiskNode: Identifiable, Sendable {
     var displayPath: String {
         let home = FileManager.default.homeDirectoryForCurrentUser.path
         return path.replacingOccurrences(of: home, with: "~")
+    }
+
+    /// Copia del nodo con dimensione e figli aggiornati, preservando identità e colore
+    func with(bytes newBytes: Int64, children newChildren: [DiskNode]) -> DiskNode {
+        DiskNode(
+            id: id,
+            name: name,
+            path: path,
+            targetPaths: targetPaths,
+            bytes: max(0, newBytes),
+            isDirectory: isDirectory,
+            colorIndex: colorIndex,
+            children: newChildren
+        )
+    }
+
+    /// Sostituisce (o rimuove, se `replacement` è nil) un discendente identificato da `targetId`,
+    /// aggiornando le dimensioni di tutti gli antenati per differenza.
+    /// Nota: i figli mostrati sono un sottoinsieme (top N), quindi la dimensione non va ricalcolata come somma dei figli.
+    func replacingDescendant(_ targetId: UUID, with replacement: DiskNode?) -> DiskNode? {
+        if let idx = children.firstIndex(where: { $0.id == targetId }) {
+            let old = children[idx]
+            var newChildren = children
+            let delta: Int64
+            if let replacement, replacement.bytes > 0 {
+                newChildren[idx] = replacement
+                delta = old.bytes - replacement.bytes
+            } else {
+                newChildren.remove(at: idx)
+                delta = old.bytes
+            }
+            return with(bytes: bytes - delta, children: newChildren)
+        }
+        for (idx, child) in children.enumerated() where child.isDirectory && !child.children.isEmpty {
+            if let updatedChild = child.replacingDescendant(targetId, with: replacement) {
+                var newChildren = children
+                newChildren[idx] = updatedChild
+                return with(bytes: bytes - (child.bytes - updatedChild.bytes), children: newChildren)
+            }
+        }
+        return nil
+    }
+
+    /// Catena di discendenti dal nodo corrente (escluso) fino al nodo `targetId` (incluso)
+    func pathToDescendant(_ targetId: UUID) -> [DiskNode]? {
+        for child in children {
+            if child.id == targetId { return [child] }
+            if let sub = child.pathToDescendant(targetId) { return [child] + sub }
+        }
+        return nil
     }
 
     /// Rileva se il nodo è un componente o cartella vitale del sistema operativo macOS che non deve MAI essere toccato
@@ -141,6 +193,20 @@ struct DiskNode: Identifiable, Sendable {
             return .emptyContentsOnly
         }
         return .normal
+    }
+
+    /// True se l'interfaccia deve offrire il pulsante Cestino / Svuota per questo nodo
+    var canBeTrashed: Bool {
+        switch safetyRule {
+        case .systemProtected:
+            return false
+        case .emptyContentsOnly:
+            return true
+        case .normal:
+            return !isSystemFile && !targetPaths.contains {
+                MacSafetyIntelligence.isForbiddenToDelete(path: $0, allowUserContent: true)
+            }
+        }
     }
 
     var safetyDescription: String? {
@@ -274,8 +340,19 @@ final class SonarEngine {
         }
     }
 
-    func drillDown(into node: DiskNode) {
-        guard node.isDirectory else { return }
+    func drillDown(into requestedNode: DiskNode) {
+        guard requestedNode.isDirectory, !isScanning else { return }
+
+        // Dal grafico Sunburst si può cliccare un segmento dell'anello esterno (nipote): inseriamo nello stack
+        // anche le cartelle intermedie, così "torna su" e gli aggiornamenti dopo il Cestino restano coerenti.
+        var node = requestedNode
+        if let current = currentNode, !current.children.contains(where: { $0.id == requestedNode.id }),
+           let chain = current.pathToDescendant(requestedNode.id) {
+            for intermediate in chain.dropLast() where intermediate.isDirectory {
+                navigationStack.append(intermediate)
+            }
+            node = chain.last ?? requestedNode
+        }
 
         // Se la cartella ha già i figli calcolati, naviga all'istante
         if !node.children.isEmpty {
@@ -287,12 +364,11 @@ final class SonarEngine {
 
         // Se la cartella non ha figli (fine livello di profondità iniziale),
         // esegue un'espansione al volo rapida per esplorare in profondità qualsiasi cartella!
-        guard !isScanning else { return }
         isScanning = true
         currentScanPath = node.path
 
         Task {
-            let expanded = await SonarEngine.buildTree(
+            let built = await SonarEngine.buildTree(
                 at: URL(fileURLWithPath: node.path),
                 maxDepth: 2,
                 onProgress: { path, count in
@@ -304,13 +380,24 @@ final class SonarEngine {
                 onChildCompleted: { _, _, _ in }
             )
 
-            if let lastIdx = self.navigationStack.indices.last {
-                var current = self.navigationStack[lastIdx]
-                if let childIdx = current.children.firstIndex(where: { $0.id == node.id }) {
-                    current.children[childIdx] = expanded
-                    self.navigationStack[lastIdx] = current
+            // Mantieni identità, nome e colore del nodo originale
+            let expanded = DiskNode(
+                id: node.id,
+                name: node.name,
+                path: node.path,
+                targetPaths: node.targetPaths,
+                bytes: built.bytes,
+                isDirectory: true,
+                colorIndex: node.colorIndex,
+                children: built.children
+            )
+
+            for i in self.navigationStack.indices {
+                if let updated = self.navigationStack[i].replacingDescendant(node.id, with: expanded) {
+                    self.navigationStack[i] = updated
                 }
             }
+            self.rootNode = self.navigationStack.first ?? self.rootNode
 
             self.navigationStack.append(expanded)
             self.hoveredNode = nil
@@ -343,25 +430,24 @@ final class SonarEngine {
             return (try? FileManager.default.removeItem(at: url)) != nil
         }
 
-        do {
-            try FileManager.default.trashItem(at: url, resultingItemURL: nil)
-            return true
-        } catch {
-            let sema = DispatchSemaphore(value: 0)
-            var recycled = false
-            NSWorkspace.shared.recycle([url]) { dict, err in
-                if err == nil && !dict.isEmpty {
-                    recycled = true
-                }
-                sema.signal()
-            }
-            _ = sema.wait(timeout: .now() + 2.0)
-            if recycled || !FileManager.default.fileExists(atPath: url.path) {
-                return true
-            }
-            NSLog("[Bathys Sonar] Errore spostamento nel cestino per \(url.path): \(error.localizedDescription)")
-            return false
+        // Nessuna attesa sincrona su NSWorkspace.recycle dal Main Thread (bloccherebbe l'interfaccia)
+        let ok = SafeFileOps.moveToTrash(url)
+        if !ok {
+            NSLog("[Bathys Sonar] Impossibile spostare nel Cestino: \(url.path)")
         }
+        return ok
+    }
+
+    /// Applica la sostituzione/rimozione di un nodo a tutto lo stack di navigazione e alla radice
+    private func applyTreeChange(removing nodeId: UUID, replacement: DiskNode?) {
+        for i in navigationStack.indices {
+            if let updated = navigationStack[i].replacingDescendant(nodeId, with: replacement) {
+                navigationStack[i] = updated
+            }
+        }
+        rootNode = navigationStack.first ?? rootNode
+        if let hovered = hoveredNode, hovered.id == nodeId { hoveredNode = nil }
+        updateBlipsFromCurrentNode()
     }
 
     /// Sposta un nodo nel Cestino, oppure — se è un contenitore strutturale come C, T, Caches o Logs —
@@ -393,34 +479,12 @@ final class SonarEngine {
                 guard !MacSafetyIntelligence.isForbiddenToDelete(path: childURL.path) else { continue }
                 trashURL(childURL)
             }
-            // Aggiorna il nodo contenitore svuotato (resta visibile ma svuotato)
-            if var current = currentNode {
-                if let idx = current.children.firstIndex(where: { $0.id == node.id }) {
-                    current.children[idx] = DiskNode(
-                        name: node.name,
-                        path: node.path,
-                        bytes: 0,
-                        isDirectory: true,
-                        colorIndex: node.colorIndex,
-                        children: []
-                    )
-                    current.children.removeAll { $0.bytes == 0 }
-                }
-                let newBytes = current.children.reduce(0) { $0 + $1.bytes }
-                let updated = DiskNode(
-                    name: current.name,
-                    path: current.path,
-                    bytes: newBytes,
-                    isDirectory: current.isDirectory,
-                    colorIndex: current.colorIndex,
-                    children: current.children
-                )
-                navigationStack[navigationStack.count - 1] = updated
-                if navigationStack.count == 1 {
-                    rootNode = updated
-                }
-                updateBlipsFromCurrentNode()
-            }
+            // Il contenitore resta: aggiorniamo la sua dimensione con ciò che è rimasto (elementi protetti)
+            let remaining = UninstallerEngine.computeAllocatedSize(at: containerURL)
+            applyTreeChange(
+                removing: node.id,
+                replacement: remaining > 0 ? node.with(bytes: remaining, children: []) : nil
+            )
 
         case .normal:
             var anyTrashed = false
@@ -438,42 +502,7 @@ final class SonarEngine {
                 NSLog("[Bathys Sonar] Impossibile cestinare nodo: \(node.name) (\(node.path))")
                 return
             }
-
-            if var current = currentNode {
-                current.children.removeAll { $0.id == node.id }
-                let newBytes = current.children.reduce(0) { $0 + $1.bytes }
-                let updated = DiskNode(
-                    name: current.name,
-                    path: current.path,
-                    bytes: newBytes,
-                    isDirectory: current.isDirectory,
-                    colorIndex: current.colorIndex,
-                    children: current.children
-                )
-                navigationStack[navigationStack.count - 1] = updated
-
-                // Propaga il ricalcolo delle dimensioni ai genitori nello stack di navigazione
-                if navigationStack.count > 1 {
-                    for i in stride(from: navigationStack.count - 2, through: 0, by: -1) {
-                        var parent = navigationStack[i]
-                        let childPath = navigationStack[i + 1].path
-                        if let childIdx = parent.children.firstIndex(where: { $0.path == childPath }) {
-                            parent.children[childIdx] = navigationStack[i + 1]
-                        }
-                        let parentBytes = parent.children.reduce(0) { $0 + $1.bytes }
-                        navigationStack[i] = DiskNode(
-                            name: parent.name,
-                            path: parent.path,
-                            bytes: parentBytes,
-                            isDirectory: parent.isDirectory,
-                            colorIndex: parent.colorIndex,
-                            children: parent.children
-                        )
-                    }
-                }
-                rootNode = navigationStack.first
-                updateBlipsFromCurrentNode()
-            }
+            applyTreeChange(removing: node.id, replacement: nil)
         }
     }
 
@@ -606,7 +635,8 @@ final class SonarEngine {
             for (index, itemURL) in topContents.enumerated() {
                 let name = itemURL.lastPathComponent
                 if rootURL.path == "/" && name.hasPrefix(".") { continue }
-                if skipPaths.contains(itemURL.path) || itemURL.path.hasPrefix("/System/Volumes") { continue }
+                if rootURL.path == "/" && skipPaths.contains(itemURL.path) { continue }
+                if itemURL.path.hasPrefix("/System/Volumes") { continue }
                 group.addTask(priority: .userInitiated) {
                     var localSeen = 0
                     var lastReport = DispatchTime.now()
@@ -687,9 +717,11 @@ final class SonarEngine {
         }
 
         let rootName: String
+        let rootValues = try? rootURL.resourceValues(forKeys: [.volumeNameKey, .isVolumeKey])
         if rootURL.path == "/" {
-            rootName = "Macintosh HD"
-        } else if let volName = (try? rootURL.resourceValues(forKeys: [.volumeNameKey]))?.volumeName {
+            rootName = rootValues?.volumeName ?? "Macintosh HD"
+        } else if rootValues?.isVolume == true, let volName = rootValues?.volumeName {
+            // Solo la radice di un volume prende il nome del disco; le sottocartelle mantengono il proprio nome
             rootName = volName
         } else {
             rootName = rootURL.lastPathComponent.isEmpty ? rootURL.path : rootURL.lastPathComponent
@@ -715,7 +747,9 @@ final class SonarEngine {
         onProgress: @escaping @Sendable (String, Int) -> Void
     ) -> DiskNode {
         let p = url.path
-        if p.hasPrefix("/System/Volumes") || p.hasPrefix("/dev") || p == "/Network" || (url.path != "/" && p.hasPrefix("/Volumes/")) {
+        // Nota: /Volumes viene escluso solo quando si scansiona la radice "/" (vedi buildTree);
+        // qui non va escluso, altrimenti la scansione dei dischi esterni restituirebbe sempre 0 byte.
+        if p.hasPrefix("/System/Volumes") || p == "/dev" || p.hasPrefix("/dev/") || p == "/Network" {
             return DiskNode(name: url.lastPathComponent, path: url.path, bytes: 0, isDirectory: false, colorIndex: colorIndex, children: [])
         }
 
@@ -840,7 +874,7 @@ final class SonarEngine {
 
         for case let fileURL as URL in enumerator {
             let fp = fileURL.path
-            if fp.hasPrefix("/System/Volumes") || fp.hasPrefix("/dev") {
+            if fp.hasPrefix("/System/Volumes") || fp.hasPrefix("/dev/") {
                 enumerator.skipDescendants()
                 continue
             }

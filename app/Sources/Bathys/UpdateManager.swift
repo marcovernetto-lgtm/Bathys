@@ -31,12 +31,21 @@ final class UpdateManager {
 
     private let versionURL = URL(string: "https://raw.githubusercontent.com/marcovernetto-lgtm/Bathys/main/version.json")!
 
+    nonisolated static let expectedBundleIdentifier = "com.bathys.cleaner"
+
     var currentVersion: String {
-        Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "1.0.3"
+        Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "0.0.0"
     }
 
     var currentBuild: Int {
-        Int(Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "4") ?? 4
+        Int(Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "0") ?? 0
+    }
+
+    /// L'aggiornamento automatico è consentito solo quando Bathys gira come vera app installata (.app firmata con il
+    /// nostro bundle ID). Con `swift run` o da una build di sviluppo non deve mai sovrascrivere /Applications/Bathys.app.
+    var canSelfUpdate: Bool {
+        Bundle.main.bundleIdentifier == Self.expectedBundleIdentifier
+            && Bundle.main.bundleURL.pathExtension == "app"
     }
 
     private init() {}
@@ -52,10 +61,17 @@ final class UpdateManager {
 
     func checkForUpdates(silent: Bool = false) {
         switch status {
-        case .checking, .downloading:
+        case .checking, .downloading, .readyToRestart:
+            // Un aggiornamento è già in corso o installato: evita download ripetuti
             return
         default:
             break
+        }
+
+        // Da build di sviluppo non c'è una versione installata confrontabile
+        guard canSelfUpdate else {
+            if !silent { status = .error(message: "Aggiornamenti disponibili solo nell'app installata.") }
+            return
         }
 
         if !silent { status = .checking }
@@ -127,7 +143,18 @@ final class UpdateManager {
     }
 
     func downloadAndInstallUpdate() {
-        guard case let .available(version: _, notes: _, url: downloadURL) = status else { return }
+        guard case let .available(version: expectedVersion, notes: _, url: downloadURL) = status else { return }
+        guard canSelfUpdate else {
+            status = .error(message: "Aggiornamenti disponibili solo nell'app installata.")
+            return
+        }
+        // Accetta solo download HTTPS dal repository ufficiale
+        guard downloadURL.scheme == "https",
+              let host = downloadURL.host,
+              host == "raw.githubusercontent.com" || host == "github.com" || host.hasSuffix(".githubusercontent.com") else {
+            status = .error(message: "URL di download non attendibile.")
+            return
+        }
         status = .downloading(progress: 0.15)
 
         let appBundleURL = Bundle.main.bundleURL
@@ -184,6 +211,15 @@ final class UpdateManager {
                     return
                 }
 
+                // Verifica di integrità prima di sostituire l'app installata:
+                // stesso bundle ID, versione attesa e firma del codice valida (nessun file alterato).
+                if let problem = UpdateManager.validateDownloadedApp(at: newApp, expectedVersion: expectedVersion) {
+                    await MainActor.run {
+                        UpdateManager.shared.status = .error(message: problem)
+                    }
+                    return
+                }
+
                 // Destinazione sicura
                 var destURL = URL(fileURLWithPath: "/Applications/Bathys.app")
                 if appBundleURL.path.hasPrefix("/Applications/") {
@@ -231,17 +267,43 @@ final class UpdateManager {
         guard case let .readyToRestart(newAppURL) = status else { return }
         let pid = ProcessInfo.processInfo.processIdentifier
 
+        // Il percorso viene passato come argomento posizionale ($1), mai interpolato nello script della shell
         let script = """
         while kill -0 \(pid) 2>/dev/null; do sleep 0.1; done
-        /usr/bin/xattr -cr "\(newAppURL.path)" 2>/dev/null
-        /usr/bin/open "\(newAppURL.path)"
+        /usr/bin/xattr -cr "$1" 2>/dev/null
+        /usr/bin/open "$1"
         """
 
         let proc = Process()
         proc.executableURL = URL(fileURLWithPath: "/bin/sh")
-        proc.arguments = ["-c", script]
-        try? proc.run()
-        exit(0)
+        proc.arguments = ["-c", script, "bathys-relaunch", newAppURL.path]
+        do {
+            try proc.run()
+        } catch {
+            status = .error(message: "Riavvio automatico non riuscito: riapri Bathys manualmente.")
+            return
+        }
+        NSApp.terminate(nil)
+    }
+
+    /// Restituisce un messaggio d'errore se l'app scaricata non è un aggiornamento valido di Bathys
+    nonisolated static func validateDownloadedApp(at appURL: URL, expectedVersion: String) -> String? {
+        let plistURL = appURL.appendingPathComponent("Contents/Info.plist")
+        guard let info = NSDictionary(contentsOf: plistURL) as? [String: Any] else {
+            return "Aggiornamento non valido (Info.plist mancante)."
+        }
+        guard (info["CFBundleIdentifier"] as? String) == expectedBundleIdentifier else {
+            return "Aggiornamento non valido (identificativo app inatteso)."
+        }
+        let newVersion = (info["CFBundleShortVersionString"] as? String) ?? ""
+        if compareVersion(expectedVersion, newerThan: newVersion) {
+            return "Aggiornamento non valido (versione \(newVersion) inferiore a quella annunciata)."
+        }
+        guard let verify = SafeFileOps.runProcess("/usr/bin/codesign", ["--verify", "--deep", "--strict", appURL.path], timeout: 120),
+              verify.status == 0 else {
+            return "Aggiornamento non valido (firma del codice danneggiata)."
+        }
+        return nil
     }
 
     nonisolated static func compareVersion(_ v1: String, newerThan v2: String) -> Bool {

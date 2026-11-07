@@ -170,7 +170,7 @@ struct SonarDiskWorkspace: View {
                                     sonar.drillDown(into: child)
                                 },
                                 onTrash: {
-                                    guard !child.isSystemFile && child.safetyRule != .systemProtected else { return }
+                                    guard child.canBeTrashed else { return }
                                     if AppSettings.shared.confirmBeforeClean {
                                         sonar.nodePendingTrash = child
                                     } else {
@@ -562,7 +562,7 @@ struct SonarNodeRow: View {
                     }
 
                     // 2. Cestino / Svuotamento (Pulsante rotondo lavorato — bloccato per file di sistema)
-                    if !isSystem && rule != .systemProtected {
+                    if node.canBeTrashed {
                         BathysRoundIconButton(
                             icon: rule == .emptyContentsOnly ? "sparkles" : "trash.fill",
                             size: 26,
@@ -887,12 +887,14 @@ struct UninstallerWorkspace: View {
                         HStack {
                             Spacer()
                             CircularActionOrbButton(
-                                label: uninstaller.isResetOnlyMode
-                                    ? (L10n.lang == .italian ? "Reset Dati" : "Reset App")
-                                    : (L10n.lang == .italian ? "Disinstalla" : "Uninstall"),
+                                label: uninstaller.isUninstalling
+                                    ? (L10n.lang == .italian ? "Attendi…" : "Working…")
+                                    : (uninstaller.isResetOnlyMode
+                                        ? (L10n.lang == .italian ? "Reset Dati" : "Reset App")
+                                        : (L10n.lang == .italian ? "Disinstalla" : "Uninstall")),
                                 iconName: uninstaller.isResetOnlyMode ? "arrow.counterclockwise" : "trash.fill",
                                 tint: uninstaller.isResetOnlyMode ? BathysPalette.amber : BathysPalette.coral,
-                                isDisabled: uninstaller.totalSelectedBytes == 0,
+                                isDisabled: uninstaller.totalSelectedBytes == 0 || uninstaller.isUninstalling,
                                 shortcutHint: "⌫"
                             ) {
                                 if AppSettings.shared.confirmBeforeClean {
@@ -930,12 +932,9 @@ struct UninstallerWorkspace: View {
             return .handled
         }
         .onKeyPress(.delete) {
-            if uninstaller.selectedApp != nil && uninstaller.totalSelectedBytes > 0 {
-                if AppSettings.shared.confirmBeforeClean {
-                    uninstaller.showUninstallConfirmation = true
-                } else {
-                    uninstaller.uninstallSelectedItems()
-                }
+            // Da tastiera chiediamo SEMPRE conferma: un tasto premuto per errore non deve mai disinstallare un'app
+            if uninstaller.selectedApp != nil && uninstaller.totalSelectedBytes > 0 && !uninstaller.isUninstalling {
+                uninstaller.showUninstallConfirmation = true
                 return .handled
             }
             return .ignored
@@ -983,12 +982,10 @@ struct UninstallerWorkspace: View {
                         return nil
 
                     case 51: // Backspace / Delete
-                        if uninstaller.selectedApp != nil && uninstaller.totalSelectedBytes > 0 {
-                            if AppSettings.shared.confirmBeforeClean {
-                                uninstaller.showUninstallConfirmation = true
-                            } else {
-                                uninstaller.uninstallSelectedItems()
-                            }
+                        // Da tastiera chiediamo SEMPRE conferma (mai disinstallazione immediata)
+                        if uninstaller.selectedApp != nil && uninstaller.totalSelectedBytes > 0
+                            && !uninstaller.isUninstalling && !uninstaller.showUninstallConfirmation {
+                            uninstaller.showUninstallConfirmation = true
                             return nil
                         }
                         return event
@@ -1109,6 +1106,8 @@ struct OptimizationWorkspace: View {
     @Bindable var optimizer: OptimizerEngine
     let onBack: () -> Void
     @State private var selectedSection: Int = 0 // 0 = Manutenzione, 1 = Elementi di Avvio
+    @State private var agentPendingRemoval: LaunchAgentItem?
+    @State private var agentRemovalFailed = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -1259,6 +1258,41 @@ struct OptimizationWorkspace: View {
     }
 
     private var startupAgentsSectionBody: some View {
+        agentsList
+            .confirmationDialog(
+                L10n.lang == .italian ? "Rimuovere questo elemento di avvio?" : "Remove this startup item?",
+                isPresented: Binding(
+                    get: { agentPendingRemoval != nil },
+                    set: { if !$0 { agentPendingRemoval = nil } }
+                ),
+                titleVisibility: .visible,
+                presenting: agentPendingRemoval
+            ) { agent in
+                Button(L10n.lang == .italian ? "Sposta nel Cestino" : "Move to Trash", role: .destructive) {
+                    agentRemovalFailed = !optimizer.removeLaunchAgent(agent)
+                    agentPendingRemoval = nil
+                }
+                Button(L10n.lang == .italian ? "Annulla" : "Cancel", role: .cancel) {
+                    agentPendingRemoval = nil
+                }
+            } message: { agent in
+                Text(L10n.lang == .italian
+                     ? "\(agent.label) verrà disattivato e il suo file \(agent.displayPath) spostato nel Cestino."
+                     : "\(agent.label) will be unloaded and its file \(agent.displayPath) moved to the Trash.")
+            }
+            .alert(
+                L10n.lang == .italian ? "Impossibile rimuovere l'elemento" : "Could not remove the item",
+                isPresented: $agentRemovalFailed
+            ) {
+                Button("OK", role: .cancel) {}
+            } message: {
+                Text(L10n.lang == .italian
+                     ? "Il file è protetto o non hai i permessi necessari. Puoi rimuoverlo manualmente dal Finder."
+                     : "The file is protected or you lack the required permissions. You can remove it manually in Finder.")
+            }
+    }
+
+    private var agentsList: some View {
         ScrollView(.vertical, showsIndicators: false) {
             VStack(spacing: 8) {
                 ForEach(optimizer.launchAgents) { agent in
@@ -1309,7 +1343,8 @@ struct OptimizationWorkspace: View {
                                 isDestructive: true,
                                 helpText: "Sposta nel Cestino"
                             ) {
-                                optimizer.removeLaunchAgent(agent)
+                                // Rimuovere un elemento di avvio è un'azione importante: chiediamo sempre conferma
+                                agentPendingRemoval = agent
                             }
                         }
                     }

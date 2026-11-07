@@ -40,28 +40,7 @@ final class SoundManager: @unchecked Sendable {
         if CommandLine.arguments.contains("--self-test") { return }
         DispatchQueue.main.async { [weak self] in
             guard let self = self else { return }
-            var soundUrl: URL?
-
-            // 1. Try Bundle.module (SwiftPM package bundle)
-            if let url = Bundle.module.url(forResource: "bathys_chime", withExtension: "mp3", subdirectory: "Assets")
-                ?? Bundle.module.url(forResource: "bathys_chime", withExtension: "mp3") {
-                soundUrl = url
-            }
-            // 2. Try Bundle.main
-            if soundUrl == nil, let url = Bundle.main.url(forResource: "bathys_chime", withExtension: "mp3", subdirectory: "Assets")
-                ?? Bundle.main.url(forResource: "bathys_chime", withExtension: "mp3")
-                ?? Bundle.main.resourceURL?.appendingPathComponent("Assets/bathys_chime.mp3") {
-                soundUrl = url
-            }
-            // 3. Fallback relative to source directory for direct execution
-            if soundUrl == nil {
-                let devUrl = URL(fileURLWithPath: #filePath)
-                    .deletingLastPathComponent()
-                    .appendingPathComponent("Assets/bathys_chime.mp3")
-                if FileManager.default.fileExists(atPath: devUrl.path) {
-                    soundUrl = devUrl
-                }
-            }
+            let soundUrl = ResourceLocator.url(forResource: "bathys_chime", withExtension: "mp3")
 
             guard let url = soundUrl else {
                 return

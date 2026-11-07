@@ -97,7 +97,30 @@ enum SelfTestRunner {
         let darwinZeroProtectedFile = writeSyntheticFile("var/folders/0/kernel_sandbox_state.bin", sizeBytes: 1 * 1024 * 1024, modDate: twoHoursAgo)
         let cloudKitProtectedFile = writeSyntheticFile("Library/Caches/CloudKit/cloud_sync.db", sizeBytes: 1 * 1024 * 1024)
 
-        // 1C. Recursive Symlink Loop inside Library/Caches
+        // 1C. Cache delle app installate (Adobe, DaVinci Resolve, Electron, sandbox)
+        let adobeMediaCache = writeSyntheticFile("Library/Application Support/Adobe/Common/Media Cache Files/clip_audio.cfa", sizeBytes: 1 * 1024 * 1024)
+        let electronCodeCache = writeSyntheticFile("Library/Application Support/FakeElectronApp/Code Cache/js/index.bin", sizeBytes: 1 * 1024 * 1024)
+        let electronGPUCache = writeSyntheticFile("Library/Application Support/FakeElectronApp/GPUCache/data_1", sizeBytes: 512 * 1024)
+        let electronUserData = writeSyntheticFile("Library/Application Support/FakeElectronApp/Local Storage/leveldb/000003.log", sizeBytes: 256 * 1024)
+        // App Electron "aperta": SingletonLock che punta al PID di questo stesso processo (vivo)
+        let runningElectronCache = writeSyntheticFile("Library/Application Support/RunningElectronApp/GPUCache/data_1", sizeBytes: 512 * 1024)
+        try? fm.createSymbolicLink(
+            atPath: sandboxURL.appendingPathComponent("Library/Application Support/RunningElectronApp/SingletonLock").path,
+            withDestinationPath: "bathys-test-host-\(ProcessInfo.processInfo.processIdentifier)"
+        )
+        // DaVinci Resolve: archiviazione media in ~/Movies (cartella personale!) letta da config.dat
+        let resolveConfig = sandboxURL.appendingPathComponent("Library/Preferences/Blackmagic Design/DaVinci Resolve/config.dat")
+        try? fm.createDirectory(at: resolveConfig.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try? "Site.1.FS.Count = 1\nSite.1.FS.1.Type = IOFileSys\nSite.1.FS.1.Root = \(sandboxURL.appendingPathComponent("Movies").path)\nRenderCaching.CacheDir = CacheClip\n"
+            .write(to: resolveConfig, atomically: true, encoding: .utf8)
+        let resolveRenderCache = writeSyntheticFile("Movies/CacheClip/3f8c3281-2c04/render_0001.dvcc", sizeBytes: 2 * 1024 * 1024)
+        let resolveProxy = writeSyntheticFile("Movies/ProxyMedia/A001_proxy.mov", sizeBytes: 1 * 1024 * 1024)
+        let userMovie = writeSyntheticFile("Movies/Matrimonio_Finale.mov", sizeBytes: 1 * 1024 * 1024)
+        // App sandbox: solo Data/Library/Caches è pulibile, i documenti no
+        let sandboxedAppCache = writeSyntheticFile("Library/Containers/com.bathystest.sandboxed/Data/Library/Caches/thumbs.db", sizeBytes: 1 * 1024 * 1024)
+        let sandboxedAppDocument = writeSyntheticFile("Library/Containers/com.bathystest.sandboxed/Data/Documents/notes.txt", sizeBytes: 64 * 1024)
+
+        // 1D. Recursive Symlink Loop inside Library/Caches
         let symlinkLoopURL = sandboxURL.appendingPathComponent("Library/Caches/com.bathystest.symlink_loop")
         try? fm.createSymbolicLink(at: symlinkLoopURL, withDestinationURL: sandboxURL.appendingPathComponent("Library/Caches"))
 
@@ -132,10 +155,34 @@ enum SelfTestRunner {
         }
 
         let totalDetected = scanner.totalBytes
+        let logsBytes = scanner.categories.first(where: { $0.id == "logs" })?.bytes ?? 0
+        check(
+            "DeepClean Nested Roots Counted Once (Logs + DiagnosticReports)",
+            logsBytes > 0 && logsBytes < Int64(1.5 * 1024 * 1024),
+            "Logs category=\(ByteCountFormatter.string(fromByteCount: logsBytes, countStyle: .file)) for a 1 MB crash report (expected ~1 MB, not doubled)"
+        )
         check(
             "DeepClean Full Scan Detection & Symlink Safety",
             totalDetected >= 20 * 1024 * 1024,
             "Detected \(ByteCountFormatter.string(fromByteCount: totalDetected, countStyle: .file)) without hanging on symlink loop"
+        )
+
+        let appCacheItems = scanner.categories.first(where: { $0.id == "appcaches" })?.topItems ?? []
+        let appCachePaths = appCacheItems.flatMap(\.targetPaths)
+        let proxyItem = appCacheItems.first { $0.targetPaths.contains { $0.contains("ProxyMedia") } }
+        check(
+            "Installed App Caches Discovery (Adobe, Resolve, Electron, Sandbox)",
+            appCachePaths.contains { $0.contains("Media Cache Files") }
+                && appCachePaths.contains { $0.contains("FakeElectronApp/Code Cache") }
+                && appCachePaths.contains { $0.contains("Movies/CacheClip/") }
+                && appCachePaths.contains { $0.contains("com.bathystest.sandboxed/Data/Library/Caches/") }
+                && proxyItem?.isSelected == false,
+            "items=\(appCacheItems.map(\.name)), proxyPreselected=\(proxyItem?.isSelected ?? true)"
+        )
+        check(
+            "Installed App Caches Safety (open app, user data, documents)",
+            !appCachePaths.contains { $0.contains("RunningElectronApp") || $0.contains("Local Storage") || $0.contains("Documents") || $0.hasSuffix("Matrimonio_Finale.mov") },
+            "runningAppQueued=\(appCachePaths.contains { $0.contains("RunningElectronApp") }), userDataQueued=\(appCachePaths.contains { $0.contains("Local Storage") || $0.contains("Documents") })"
         )
 
         // Verify safety exclusions were NOT queued into category topItems
@@ -175,6 +222,23 @@ enum SelfTestRunner {
             && !fm.fileExists(atPath: xcodeDerivedFile.path)
             && !fm.fileExists(atPath: crashLogFile.path)
             && !fm.fileExists(atPath: trashFile.path)
+
+        let appCachesCleaned = !fm.fileExists(atPath: adobeMediaCache.path)
+            && !fm.fileExists(atPath: electronCodeCache.path)
+            && !fm.fileExists(atPath: electronGPUCache.path)
+            && !fm.fileExists(atPath: resolveRenderCache.path)
+            && !fm.fileExists(atPath: sandboxedAppCache.path)
+        let appDataPreserved = fm.fileExists(atPath: electronUserData.path)
+            && fm.fileExists(atPath: runningElectronCache.path)
+            && fm.fileExists(atPath: resolveProxy.path)
+            && fm.fileExists(atPath: userMovie.path)
+            && fm.fileExists(atPath: sandboxedAppDocument.path)
+            && fm.fileExists(atPath: sandboxURL.appendingPathComponent("Movies/CacheClip").path)
+        check(
+            "Installed App Caches Cleaning",
+            appCachesCleaned && appDataPreserved,
+            "cachesCleaned=\(appCachesCleaned), userDataPreserved=\(appDataPreserved) (Local Storage, app aperta, proxy, film, documenti, cartella CacheClip)"
+        )
 
         let protectedSurvived = fm.fileExists(atPath: activeTempFile.path)
             && fm.fileExists(atPath: lockTempFile.path)
@@ -216,6 +280,19 @@ enum SelfTestRunner {
         let resPrefs = writeSyntheticFile("Library/Preferences/com.bathys.dummyapp.plist", sizeBytes: 64 * 1024)
         let resState = writeSyntheticFile("Library/Saved Application State/com.bathys.dummyapp.savedState/state.bin", sizeBytes: 128 * 1024)
 
+        // App "sorella" con bundle ID più specifico e dati Apple che contengono il nome dell'app:
+        // NON devono essere attribuiti a BathysDummyApp.
+        let siblingPlistURL = sandboxURL.appendingPathComponent("Applications/BathysDummyApp Canary.app/Contents/Info.plist")
+        try? fm.createDirectory(at: siblingPlistURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+        ([
+            "CFBundleIdentifier": "com.bathys.dummyapp.canary",
+            "CFBundleDisplayName": "BathysDummyApp Canary",
+            "CFBundleShortVersionString": "3.0.0"
+        ] as NSDictionary).write(to: siblingPlistURL, atomically: true)
+        let siblingCache = writeSyntheticFile("Library/Caches/com.bathys.dummyapp.canary/cache.db", sizeBytes: 256 * 1024)
+        let appleNamespaced = writeSyntheticFile("Library/Caches/com.apple.bathysdummyapp/system.db", sizeBytes: 128 * 1024)
+        let unrelatedSubstring = writeSyntheticFile("Library/Application Support/NotBathysDummyAppData2/data.bin", sizeBytes: 128 * 1024)
+
         let uninstaller = UninstallerEngine()
         uninstaller.loadInstalledApps()
         while uninstaller.isLoadingApps || uninstaller.isScanningResiduals {
@@ -225,13 +302,22 @@ enum SelfTestRunner {
         let foundDummyApp = uninstaller.apps.first(where: { $0.bundleId == "com.bathys.dummyapp" })
         check(
             "Uninstaller App Discovery & Residual Correlation",
-            foundDummyApp != nil && uninstaller.residuals.count == 5,
-            "Found app=\(foundDummyApp?.name ?? "nil") with \(uninstaller.residuals.count) correlated items (1 bundle + 4 Library residuals)"
+            foundDummyApp != nil && uninstaller.selectedApp?.bundleId == "com.bathys.dummyapp" && uninstaller.residuals.count == 5,
+            "Found app=\(foundDummyApp?.name ?? "nil") with \(uninstaller.residuals.count) correlated items (1 bundle + 4 Library residuals): \(uninstaller.residuals.map(\.name))"
+        )
+        let queuedResidualPaths = uninstaller.residuals.map(\.path)
+        check(
+            "Uninstaller Excludes Sibling App, Apple Data & Substring Look-alikes",
+            !queuedResidualPaths.contains { $0.contains("com.bathys.dummyapp.canary") || $0.contains("com.apple.") || $0.contains("NotBathysDummyAppData2") },
+            "siblingQueued=\(queuedResidualPaths.contains { $0.contains("canary") }), appleQueued=\(queuedResidualPaths.contains { $0.contains("com.apple.") }), lookalikeQueued=\(queuedResidualPaths.contains { $0.contains("NotBathysDummyAppData2") })"
         )
 
         // Test 1: Reset-Only Mode (preserves .app bundle, deletes only Library residuals)
         uninstaller.setUninstallScope(resetOnly: true)
         uninstaller.uninstallSelectedItems()
+        while uninstaller.isUninstalling {
+            try? await Task.sleep(for: .milliseconds(50))
+        }
         let appBundleSurvivedReset = fm.fileExists(atPath: appBundleURL.path)
         let libraryResidualsClearedOnReset = !fm.fileExists(atPath: resSupport.deletingLastPathComponent().path)
             && !fm.fileExists(atPath: resCache.deletingLastPathComponent().path)
@@ -252,9 +338,17 @@ enum SelfTestRunner {
         }
         uninstaller.setUninstallScope(resetOnly: false)
         uninstaller.uninstallSelectedItems()
+        while uninstaller.isUninstalling || uninstaller.isScanningResiduals {
+            try? await Task.sleep(for: .milliseconds(50))
+        }
         let allAppResidualsRemoved = !fm.fileExists(atPath: appBundleURL.path)
             && !fm.fileExists(atPath: resCache2.deletingLastPathComponent().path)
 
+        check(
+            "Uninstaller Leaves Unrelated Data Untouched",
+            fm.fileExists(atPath: siblingCache.path) && fm.fileExists(atPath: appleNamespaced.path) && fm.fileExists(atPath: unrelatedSubstring.path),
+            "siblingCache=\(fm.fileExists(atPath: siblingCache.path)), appleData=\(fm.fileExists(atPath: appleNamespaced.path)), lookalike=\(fm.fileExists(atPath: unrelatedSubstring.path))"
+        )
         check(
             "Uninstaller Complete Removal",
             allAppResidualsRemoved && uninstaller.lastFreedBytes >= 3 * 1024 * 1024,
@@ -317,9 +411,14 @@ enum SelfTestRunner {
         // -------------------------------------------------------------------------
         let dsStore1 = writeSyntheticFile("Downloads/.DS_Store", sizeBytes: 4096)
         let dsStore2 = writeSyntheticFile("Documents/.DS_Store", sizeBytes: 4096)
-        let zeroPlist = writeSyntheticFile("Library/Preferences/com.bathystest.zero.plist", sizeBytes: 0)
+        // I plist corrotti reali sono vecchi: quelli modificati nell'ultimo minuto vengono ignorati (possibile scrittura in corso)
+        let zeroPlist = writeSyntheticFile("Library/Preferences/com.bathystest.zero.plist", sizeBytes: 0, modDate: twoHoursAgo)
         let malformedPlist = sandboxURL.appendingPathComponent("Library/Preferences/com.bathystest.malformed.plist")
         try? Data("<<<CORRUPTED_NOT_XML_PLIST>>>".utf8).write(to: malformedPlist)
+        try? fm.setAttributes([.modificationDate: twoHoursAgo], ofItemAtPath: malformedPlist.path)
+        // Plist corrotto ma appena scritto: deve essere preservato
+        let freshMalformedPlist = sandboxURL.appendingPathComponent("Library/Preferences/com.bathystest.writing.plist")
+        try? Data("<<<PARTIAL_WRITE>>>".utf8).write(to: freshMalformedPlist)
 
         let validPlist = sandboxURL.appendingPathComponent("Library/Preferences/com.bathystest.valid.plist")
         (["Theme": "AbyssalDark", "Version": 2] as NSDictionary).write(to: validPlist, atomically: true)
@@ -380,7 +479,7 @@ enum SelfTestRunner {
 
         let dsStoresRemoved = !fm.fileExists(atPath: dsStore1.path) && !fm.fileExists(atPath: dsStore2.path)
         let brokenPlistsRemoved = !fm.fileExists(atPath: zeroPlist.path) && !fm.fileExists(atPath: malformedPlist.path)
-        let validPlistSurvived = fm.fileExists(atPath: validPlist.path)
+        let validPlistSurvived = fm.fileExists(atPath: validPlist.path) && fm.fileExists(atPath: freshMalformedPlist.path)
         let staleStateRemoved = !fm.fileExists(atPath: staleStateDir.path)
         let recentStateSurvived = fm.fileExists(atPath: recentStateDir.path)
 

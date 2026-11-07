@@ -49,39 +49,20 @@ enum BathysPalette {
 // MARK: - Asset Helper with In-Memory Static Cache
 
 enum BathysAsset {
+    private static let names = [
+        "algae_blue_wavy", "algae_green_mid", "algae_green_tall", "algae_ribbon_center", "algae_teal_small",
+        "coral_orange_anemone", "coral_orange_branch", "coral_purple_fan", "coral_red_fingers",
+        "fish_blue_1", "fish_blue_2", "fish_orange_1", "fish_orange_2", "fish_pink_1", "fish_pink_2",
+        "submarine_yellow", "submarine_hull", "seafloor_sand_bed", "seafloor_sand_foreground",
+        "trash_oil_drum", "trash_tire", "trash_wood_crate", "trash_glass_bottle", "trash_plastic_bottle", "trash_plastic_bag",
+        "bathys_periscope_logo"
+    ]
+
     private static let cache: [String: Image] = {
-        let names = [
-            "algae_blue_wavy", "algae_green_mid", "algae_green_tall", "algae_ribbon_center", "algae_teal_small",
-            "coral_orange_anemone", "coral_orange_branch", "coral_purple_fan", "coral_red_fingers",
-            "fish_blue_1", "fish_blue_2", "fish_orange_1", "fish_orange_2", "fish_pink_1", "fish_pink_2",
-            "submarine_yellow", "submarine_hull", "seafloor_sand_bed", "seafloor_sand_foreground",
-            "trash_oil_drum", "trash_tire", "trash_wood_crate", "trash_glass_bottle", "trash_plastic_bottle", "trash_plastic_bag",
-            "bathys_periscope_logo"
-        ]
         var map: [String: Image] = [:]
         for name in names {
-            var nsImg: NSImage?
-            // 1. Try Bundle.module (SwiftPM target resource bundle)
-            if let bundleUrl = Bundle.module.url(forResource: name, withExtension: "png", subdirectory: "Assets")
-                ?? Bundle.module.url(forResource: name, withExtension: "png") {
-                nsImg = NSImage(contentsOf: bundleUrl)
-            }
-            // 2. Try Bundle.main
-            if nsImg == nil, let mainUrl = Bundle.main.url(forResource: name, withExtension: "png", subdirectory: "Assets")
-                ?? Bundle.main.url(forResource: name, withExtension: "png")
-                ?? Bundle.main.resourceURL?.appendingPathComponent("Assets/\(name).png") {
-                nsImg = NSImage(contentsOf: mainUrl)
-            }
-            // 3. Fallback for live development execution relative to source file
-            if nsImg == nil {
-                let devUrl = URL(fileURLWithPath: #filePath)
-                    .deletingLastPathComponent()
-                    .appendingPathComponent("Assets/\(name).png")
-                if FileManager.default.fileExists(atPath: devUrl.path) {
-                    nsImg = NSImage(contentsOf: devUrl)
-                }
-            }
-            if let img = nsImg {
+            if let url = ResourceLocator.url(forResource: name, withExtension: "png"),
+               let img = NSImage(contentsOf: url) {
                 map[name] = Image(nsImage: img)
             }
         }
@@ -92,22 +73,8 @@ enum BathysAsset {
         if let cached = cache[name] {
             return cached
         }
-        // Fallback dinamico immediato
-        if let bundleUrl = Bundle.module.url(forResource: name, withExtension: "png", subdirectory: "Assets")
-            ?? Bundle.module.url(forResource: name, withExtension: "png"),
-           let img = NSImage(contentsOf: bundleUrl) {
-            return Image(nsImage: img)
-        }
-        if let mainUrl = Bundle.main.url(forResource: name, withExtension: "png", subdirectory: "Assets")
-            ?? Bundle.main.url(forResource: name, withExtension: "png")
-            ?? Bundle.main.resourceURL?.appendingPathComponent("Assets/\(name).png"),
-           let img = NSImage(contentsOf: mainUrl) {
-            return Image(nsImage: img)
-        }
-        let devUrl = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent()
-            .appendingPathComponent("Assets/\(name).png")
-        if let img = NSImage(contentsOf: devUrl) {
+        if let url = ResourceLocator.url(forResource: name, withExtension: "png"),
+           let img = NSImage(contentsOf: url) {
             return Image(nsImage: img)
         }
         return Image(systemName: "photo")
@@ -391,6 +358,14 @@ struct ContentView: View {
                                     .font(.system(size: 11.5, weight: .bold))
                                     .foregroundStyle(BathysPalette.amber)
                                 Text("v\(ver) " + (L10n.lang == .italian ? "disponibile" : "available"))
+                                    .font(.system(size: 12, weight: .semibold))
+                                    .foregroundStyle(Color.white)
+                            case .error:
+                                // Prima la pillola restava vuota in caso di errore di download/installazione
+                                Image(systemName: "exclamationmark.triangle.fill")
+                                    .font(.system(size: 11.5, weight: .bold))
+                                    .foregroundStyle(BathysPalette.amber)
+                                Text(L10n.lang == .italian ? "Aggiornamento non riuscito" : "Update failed")
                                     .font(.system(size: 12, weight: .semibold))
                                     .foregroundStyle(Color.white)
                             default:
@@ -1326,14 +1301,14 @@ struct DeepCleanModuleView: View {
         VStack(alignment: .leading, spacing: 0) {
             // Top bar
             WorkspaceTopBar(onBack: onBack) {
-                if scanner.hasScanned && !scanner.isScanning {
+                if scanner.hasScanned && !scanner.isScanning && !scanner.isCleaning {
                     Button {
                         scanner.scan()
                     } label: {
                         HStack(spacing: 6) {
                             Image(systemName: "arrow.clockwise")
                                 .font(.system(size: 11, weight: .medium))
-                            Text(L10n.lang == .italian ? "Riscansiona" : "Rescan")
+                            Text(L10n.rescanBtn)
                                 .font(.system(size: 13, weight: .medium))
                         }
                         .foregroundStyle(BathysPalette.textSecondary)
@@ -1624,9 +1599,10 @@ struct DeepCleanModuleView: View {
                     label: L10n.cleanBtn,
                     iconName: "sparkles",
                     tint: BathysPalette.teal,
-                    isDisabled: scanner.selectedBytes == 0
+                    isDisabled: scanner.selectedBytes == 0 || scanner.isCleaning
                 ) {
-                    if AppSettings.shared.confirmBeforeClean {
+                    // Lo svuotamento definitivo del Cestino richiede sempre una conferma esplicita
+                    if AppSettings.shared.confirmBeforeClean || scanner.includesPermanentTrashDeletion {
                         scanner.showCleanConfirmation = true
                     } else {
                         scanner.cleanSelectedItems()
@@ -2856,23 +2832,7 @@ final class PermissionManager {
     }
 
     func checkPermissions() {
-        let home = FileManager.default.homeDirectoryForCurrentUser
-        let fm = FileManager.default
-        let canaries = [
-            home.appendingPathComponent("Library/Safari"),
-            home.appendingPathComponent("Library/Mail"),
-            home.appendingPathComponent("Library/Cookies"),
-            home.appendingPathComponent("Library/Messages"),
-            home.appendingPathComponent("Library/Suggestions")
-        ]
-        var granted = false
-        for canary in canaries {
-            if (try? fm.contentsOfDirectory(at: canary, includingPropertiesForKeys: nil)) != nil {
-                granted = true
-                break
-            }
-        }
-        hasFullDiskAccess = granted
+        hasFullDiskAccess = MacSafetyIntelligence.hasFullDiskAccess()
     }
 
     func openSystemSettingsFullDiskAccess() {
