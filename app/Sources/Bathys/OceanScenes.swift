@@ -72,7 +72,7 @@ struct LeftThemedOceanPane: View {
 
                     // 3. Scena Tematica Specifica per Modalità (Senza Testi o Box Sovrapposti)
                     switch mode {
-                    case .none, .some(.deepClean):
+                    case .none, .some(.deepClean), .some(.sonar):
                         VolumetricSunRaysView(time: time, width: w, height: h)
                         WaterCausticsLayer(time: time, width: w, height: h)
                         AnimatedWaterSurfaceWave(time: time, width: w, height: h)
@@ -116,14 +116,6 @@ struct LeftThemedOceanPane: View {
                             depth: mode == .deepClean ? scanner.depth : 0.0
                         )
                         ForegroundFishLayer(time: time, containerSize: proxy.size)
-
-                    case .some(.sonar):
-                        SonarRadarScene(
-                            time: time,
-                            width: w,
-                            height: h,
-                            sonar: sonar
-                        )
 
                     case .some(.uninstaller):
                         VolumetricSunRaysView(time: time, width: w, height: h)
@@ -458,29 +450,6 @@ struct SonarRadarInstrument: View {
                 .shadow(color: Color.black.opacity(0.60), radius: 6, y: 3)
         }
         .frame(width: diameter, height: diameter)
-    }
-}
-
-struct SonarRadarScene: View {
-    let time: Double
-    let width: CGFloat
-    let height: CGFloat
-    let sonar: SonarEngine
-
-    var body: some View {
-        ZStack {
-            NauticalConsolePanel(size: 292) {
-                ZStack {
-                    Circle()
-                        .fill(Color(red: 0.02, green: 0.05, blue: 0.10).opacity(0.98))
-                        .frame(width: 252, height: 252)
-                    AzimuthCompassRing(diameter: 252)
-                    SonarRadarInstrument(time: time, sonar: sonar, diameter: 248)
-                }
-            }
-            .position(x: width / 2, y: 65.0 + height / 2.0)
-        }
-        .frame(width: width, height: height)
     }
 }
 

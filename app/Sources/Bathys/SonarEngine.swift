@@ -258,6 +258,8 @@ final class SonarEngine {
     }
 
     var isScanning = false
+    /// True durante la mappatura completa di un disco (non durante l'espansione di una singola cartella)
+    var isMappingVolume = false
     var scannedFilesCount = 0
     var currentScanPath = ""
     var rootNode: DiskNode?
@@ -302,6 +304,7 @@ final class SonarEngine {
         guard !isScanning else { return }
         let target = url ?? activeTargetURL
         isScanning = true
+        isMappingVolume = true
         scannedFilesCount = 0
         currentScanPath = target.path
         hoveredNode = nil
@@ -336,6 +339,7 @@ final class SonarEngine {
             self.updateBlipsFromCurrentNode()
             self.currentScanPath = ""
             self.isScanning = false
+            self.isMappingVolume = false
             SoundManager.shared.playChime()
         }
     }

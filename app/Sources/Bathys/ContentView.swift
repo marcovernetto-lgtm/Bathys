@@ -107,29 +107,31 @@ struct ContentView: View {
     var body: some View {
         HStack(spacing: 0) {
             // LEFT: Pure Thematic Ocean Scene (410px, Crisp Viewport)
-            LeftThemedOceanPane(
-                mode: activeMode,
-                scanner: scanner,
-                sonar: sonar,
-                uninstaller: uninstaller,
-                optimizer: optimizer
-            )
-            .frame(width: 410)
-            .frame(maxHeight: .infinity)
-            .clipped()
-            .overlay(alignment: .trailing) {
-                // Subtle inner viewport bezel shadow before the nautical divider
-                LinearGradient(
-                    colors: [Color.clear, Color.black.opacity(0.32)],
-                    startPoint: .leading,
-                    endPoint: .trailing
+            if activeMode != .sonar {
+                LeftThemedOceanPane(
+                    mode: activeMode,
+                    scanner: scanner,
+                    sonar: sonar,
+                    uninstaller: uninstaller,
+                    optimizer: optimizer
                 )
-                .frame(width: 10)
-                .allowsHitTesting(false)
-            }
+                .frame(width: 410)
+                .frame(maxHeight: .infinity)
+                .clipped()
+                .overlay(alignment: .trailing) {
+                    // Subtle inner viewport bezel shadow before the nautical divider
+                    LinearGradient(
+                        colors: [Color.clear, Color.black.opacity(0.32)],
+                        startPoint: .leading,
+                        endPoint: .trailing
+                    )
+                    .frame(width: 10)
+                    .allowsHitTesting(false)
+                }
 
-            // THEMED NAUTICAL DEPTH-GAUGE DIVIDER
-            BathysNauticalDivider()
+                // THEMED NAUTICAL DEPTH-GAUGE DIVIDER
+                BathysNauticalDivider()
+            }
 
             // RIGHT: Breathable Workspace (2x2 Hub at Opening, or Selected Module)
             ZStack {
@@ -150,6 +152,14 @@ struct ContentView: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
         .background(BathysPalette.abyssDark)
+        // Sonar: un solo radar a tutta finestra per scegliere il disco e durante la mappatura
+        .overlay {
+            if showSonarRadar {
+                SonarRadarOverlay(sonar: sonar, onBack: returnToHomeHub)
+                    .transition(.blurFade)
+            }
+        }
+        .animation(.easeInOut(duration: 0.55), value: showSonarRadar)
         .preferredColorScheme(.dark)
         .ignoresSafeArea()
         .sheet(isPresented: $showPrivacySheet) {
@@ -179,6 +189,11 @@ struct ContentView: View {
             activeMode = initialMode
             if let initialMode {
                 triggerModeInitialLoad(for: initialMode)
+                if autoScan && initialMode == .sonar {
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
+                        sonar.scan()
+                    }
+                }
                 if autoScan && initialMode == .deepClean {
                     DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) {
                         scanner.scan()
@@ -424,6 +439,10 @@ struct ContentView: View {
         .background(ModuleAmbientGlow(tint: BathysPalette.sky))
     }
 
+    private var showSonarRadar: Bool {
+        activeMode == .sonar && (sonar.rootNode == nil || sonar.isMappingVolume)
+    }
+
     private func openMode(_ mode: BathysMode) {
         withAnimation(.spring(response: 0.32, dampingFraction: 0.86)) {
             activeMode = mode
@@ -442,10 +461,8 @@ struct ContentView: View {
         case .deepClean:
             break
         case .sonar:
+            // Il disco si sceglie sotto il radar: nessuna scansione automatica
             sonar.refreshVolumes()
-            if sonar.rootNode == nil && !sonar.isScanning {
-                sonar.scan()
-            }
         case .uninstaller:
             if uninstaller.apps.isEmpty && !uninstaller.isLoadingApps {
                 uninstaller.loadInstalledApps()
@@ -948,26 +965,79 @@ struct WorkspaceTopBar<Trailing: View>: View {
     var body: some View {
         HStack(alignment: .center) {
             Button(action: onBack) {
-                HStack(spacing: 6) {
-                    Image(systemName: "chevron.left")
-                        .font(.system(size: 11, weight: .semibold))
+                HStack(spacing: 9) {
+                    // Pulsantino rotondo luminoso con la freccia (stesso stile dei medaglioni)
+                    ZStack {
+                        Circle()
+                            .fill(
+                                LinearGradient(
+                                    colors: [Color(red: 0.06, green: 0.11, blue: 0.19), Color(red: 0.03, green: 0.06, blue: 0.11)],
+                                    startPoint: .top,
+                                    endPoint: .bottom
+                                )
+                            )
+                            .overlay(
+                                Circle().fill(
+                                    RadialGradient(
+                                        colors: [BathysPalette.sky.opacity(hoverBack ? 0.40 : 0.16), Color.clear],
+                                        center: .center,
+                                        startRadius: 1,
+                                        endRadius: 14
+                                    )
+                                )
+                            )
+                            .overlay(
+                                Circle().strokeBorder(
+                                    LinearGradient(
+                                        colors: [Color.white.opacity(hoverBack ? 0.40 : 0.22), BathysPalette.sky.opacity(hoverBack ? 0.65 : 0.30)],
+                                        startPoint: .topLeading,
+                                        endPoint: .bottomTrailing
+                                    ),
+                                    lineWidth: 1
+                                )
+                            )
+                            .frame(width: 24, height: 24)
+                        Image(systemName: "chevron.left")
+                            .font(.system(size: 10, weight: .bold))
+                            .foregroundStyle(hoverBack ? Color.white : BathysPalette.sky)
+                            .offset(x: hoverBack ? -1.5 : -0.5)
+                    }
+
                     Text(L10n.toolsBack)
-                        .font(.system(size: 13.5, weight: .medium))
+                        .font(.system(size: 13.5, weight: .semibold))
+                        .foregroundStyle(hoverBack ? Color.white : BathysPalette.textPrimary.opacity(0.85))
                 }
-                .foregroundStyle(hoverBack ? .white : BathysPalette.textSecondary)
-                .padding(.horizontal, 13)
-                .padding(.vertical, 7)
+                .padding(.leading, 5)
+                .padding(.trailing, 15)
+                .frame(height: 34)
                 .background(
-                    Capsule()
-                        .fill(hoverBack ? BathysPalette.surfaceFillHover : BathysPalette.surfaceFill)
+                    Capsule().fill(
+                        LinearGradient(
+                            colors: [Color.white.opacity(hoverBack ? 0.10 : 0.065), Color.white.opacity(hoverBack ? 0.05 : 0.025)],
+                            startPoint: .top,
+                            endPoint: .bottom
+                        )
+                    )
                 )
                 .overlay(
-                    Capsule()
-                        .strokeBorder(BathysPalette.hairline, lineWidth: 1)
+                    Capsule().strokeBorder(
+                        LinearGradient(
+                            colors: [Color.white.opacity(hoverBack ? 0.22 : 0.14), Color.white.opacity(0.04)],
+                            startPoint: .top,
+                            endPoint: .bottom
+                        ),
+                        lineWidth: 1
+                    )
                 )
+                .shadow(color: Color.black.opacity(0.28), radius: 8, x: 0, y: 4)
+                .contentShape(Capsule())
             }
-            .buttonStyle(.plain)
-            .onHover { hoverBack = $0 }
+            .buttonStyle(TactileCardButtonStyle())
+            .keyboardShortcut("[", modifiers: .command)
+            .help(L10n.lang == .italian ? "Torna agli strumenti (⌘[)" : "Back to tools (⌘[)")
+            .onHover { hovering in
+                withAnimation(.easeOut(duration: 0.18)) { hoverBack = hovering }
+            }
 
             Spacer()
 

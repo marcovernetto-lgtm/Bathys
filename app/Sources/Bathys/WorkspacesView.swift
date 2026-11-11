@@ -138,15 +138,15 @@ struct SonarDiskWorkspace: View {
                 .padding(.bottom, 14)
 
                 // Symmetrical 2-Column Body: Sunburst Instrument Panel (Left) + Top Folders (Right)
-                HStack(alignment: .center, spacing: 28) {
-                    NauticalConsolePanel(size: 292) {
+                HStack(alignment: .center, spacing: 36) {
+                    NauticalConsolePanel(size: 356) {
                         ZStack {
                             Circle()
                                 .fill(Color(red: 0.02, green: 0.05, blue: 0.10).opacity(0.98))
-                                .frame(width: 252, height: 252)
-                            AzimuthCompassRing(diameter: 252)
-                            BathysSunburstView(sonar: sonar, currentNode: current, diameter: 248)
-                                .frame(width: 248, height: 248)
+                                .frame(width: 314, height: 314)
+                            AzimuthCompassRing(diameter: 314)
+                            BathysSunburstView(sonar: sonar, currentNode: current, diameter: 310)
+                                .frame(width: 310, height: 310)
                         }
                     }
 
