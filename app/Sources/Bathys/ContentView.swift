@@ -221,6 +221,8 @@ struct ContentView: View {
 
     private var homeGridHub: some View {
         VStack(alignment: .center, spacing: 0) {
+            Spacer(minLength: 0)
+
             // 1. Hero Brand Zone — Positioned higher up with completely open sky above it
             VStack(alignment: .center, spacing: 10) {
                 BathysAsset.image(named: "bathys_periscope_logo")
@@ -229,13 +231,6 @@ struct ContentView: View {
                     .frame(height: 104)
                     .shadow(color: Color.black.opacity(0.45), radius: 14, x: 0, y: 6)
 
-                Text(L10n.homeSubtitle)
-                    .font(.system(size: 14, weight: .regular))
-                    .foregroundStyle(BathysPalette.textSecondary)
-                    .multilineTextAlignment(.center)
-                    .lineLimit(2)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .frame(maxWidth: 520)
             }
             .frame(maxWidth: .infinity)
             .padding(.top, 6)
@@ -250,18 +245,22 @@ struct ContentView: View {
                     HomeModuleCard(mode: .deepClean) {
                         openMode(.deepClean)
                     }
+                    .blurReveal(delay: 0.0)
                     HomeModuleCard(mode: .sonar) {
                         openMode(.sonar)
                     }
+                    .blurReveal(delay: 0.05)
                 }
 
                 HStack(spacing: 18) {
                     HomeModuleCard(mode: .uninstaller) {
                         openMode(.uninstaller)
                     }
+                    .blurReveal(delay: 0.1)
                     HomeModuleCard(mode: .optimizer) {
                         openMode(.optimizer)
                     }
+                    .blurReveal(delay: 0.15000000000000002)
                 }
             }
 
@@ -422,6 +421,7 @@ struct ContentView: View {
         .padding(.horizontal, 56)
         .padding(.top, 22)
         .padding(.bottom, 22)
+        .background(ModuleAmbientGlow(tint: BathysPalette.sky))
     }
 
     private func openMode(_ mode: BathysMode) {
@@ -462,6 +462,21 @@ struct ContentView: View {
 
     @ViewBuilder
     private func activeModuleContainer(for mode: BathysMode) -> some View {
+        moduleView(for: mode)
+            .background(ModuleAmbientGlow(tint: moduleTint(mode)))
+    }
+
+    private func moduleTint(_ mode: BathysMode) -> Color {
+        switch mode {
+        case .deepClean: return BathysPalette.sky
+        case .sonar: return BathysPalette.amber
+        case .uninstaller: return BathysPalette.coral
+        case .optimizer: return BathysPalette.emerald
+        }
+    }
+
+    @ViewBuilder
+    private func moduleView(for mode: BathysMode) -> some View {
         switch mode {
         case .deepClean:
             DeepCleanModuleView(
@@ -1380,8 +1395,8 @@ struct DeepCleanModuleView: View {
             TrashConfirmationSheet(
                 title: L10n.lang == .italian ? "Spostare i file selezionati nel Cestino?" : "Move selected files to Trash?",
                 subtitle: L10n.lang == .italian
-                    ? "I file temporanei e le cache selezionate verranno spostati nel Cestino. Le cartelle strutturali di macOS e le sessioni delle app aperte restano protette."
-                    : "Selected temporary files and caches will be moved to the Trash. macOS structural folders and active app sessions remain protected.",
+                    ? "Potrai recuperarli dal Cestino in qualsiasi momento."
+                    : "You can restore them from the Trash at any time.",
                 bytes: scanner.selectedBytes,
                 confirmLabel: L10n.lang == .italian ? "Pulisci" : "Clean",
                 includesPermanentTrash: hasPermanentTrash,
@@ -1570,17 +1585,20 @@ struct DeepCleanModuleView: View {
             .padding(.bottom, 14)
 
             // Clean Category List (Fits non-zero categories cleanly with breathing room)
-            ScrollView(.vertical, showsIndicators: false) {
+            GeometryReader { geo in
+                ScrollView(.vertical, showsIndicators: false) {
                 VStack(spacing: 9) {
                     ForEach($scanner.categories) { $cat in
                         if cat.bytes > 0 || scanner.categories.allSatisfy({ $0.bytes == 0 }) {
-                            SpaciousCategoryCard(category: $cat, hasScanned: true)
+                            SpaciousCategoryCard(category: $cat, hasScanned: true, totalBytes: scanner.totalBytes)
                                 .blurReveal(delay: Double(scanner.categories.firstIndex { $0.id == cat.id } ?? 0) * 0.045)
                         }
                     }
                 }
                 .padding(.horizontal, 52)
                 .padding(.vertical, 2)
+                .frame(minHeight: geo.size.height, alignment: .center)
+            }
             }
 
             // Bottom Action Bar with Breathing Room
@@ -1717,6 +1735,113 @@ struct ProtectedAppsIndicator: View {
     }
 }
 
+// MARK: - Medaglione luminoso (stesso stile 3D delle icone della home)
+
+struct GlowMedallion: View {
+    let symbol: String
+    let tint: Color
+    var size: CGFloat = 36
+    var isActive: Bool = true
+
+    var body: some View {
+        ZStack {
+            Circle()
+                .fill(
+                    LinearGradient(
+                        colors: [Color(red: 0.032, green: 0.060, blue: 0.108), Color(red: 0.060, green: 0.105, blue: 0.175)],
+                        startPoint: .top,
+                        endPoint: .bottom
+                    )
+                )
+                .overlay(
+                    Circle().fill(
+                        RadialGradient(
+                            colors: [tint.opacity(isActive ? 0.34 : 0.08), Color.clear],
+                            center: .center,
+                            startRadius: 1,
+                            endRadius: size * 0.55
+                        )
+                    )
+                )
+                .overlay(
+                    Circle().strokeBorder(
+                        LinearGradient(
+                            colors: [Color.white.opacity(isActive ? 0.30 : 0.10), tint.opacity(isActive ? 0.50 : 0.12)],
+                            startPoint: .topLeading,
+                            endPoint: .bottomTrailing
+                        ),
+                        lineWidth: 1.2
+                    )
+                )
+                .shadow(color: Color.black.opacity(0.35), radius: 4, x: 0, y: 2)
+
+            Image(systemName: symbol)
+                .font(.system(size: size * 0.40, weight: .semibold))
+                .foregroundStyle(isActive ? tint : BathysPalette.textTertiary)
+                .shadow(color: tint.opacity(isActive ? 0.6 : 0), radius: 5, x: 0, y: 0)
+        }
+        .frame(width: size, height: size)
+    }
+}
+
+// MARK: - Bagliore di sfondo di ogni modulo (statico: nessun costo di CPU)
+
+struct ModuleAmbientGlow: View {
+    let tint: Color
+
+    var body: some View {
+        ZStack {
+            RadialGradient(
+                colors: [tint.opacity(0.20), tint.opacity(0.05), Color.clear],
+                center: UnitPoint(x: 0.92, y: 0.0),
+                startRadius: 0,
+                endRadius: 560
+            )
+            RadialGradient(
+                colors: [BathysPalette.teal.opacity(0.08), Color.clear],
+                center: UnitPoint(x: 0.1, y: 1.0),
+                startRadius: 0,
+                endRadius: 460
+            )
+        }
+        .allowsHitTesting(false)
+        .ignoresSafeArea()
+    }
+}
+
+/// Superficie con sfumatura del colore dell'area, usata per riquadri e righe selezionati
+struct TintedSurface: View {
+    let tint: Color
+    var cornerRadius: CGFloat = 12
+    var isActive: Bool
+    var isHovered: Bool = false
+    var strength: Double = 1
+
+    var body: some View {
+        let shape = RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+        shape
+            .fill(isHovered ? BathysPalette.surfaceFillHover : BathysPalette.surfaceFill)
+            .overlay(
+                shape.fill(
+                    LinearGradient(
+                        colors: [tint.opacity(isActive ? 0.17 * strength : 0), tint.opacity(isActive ? 0.03 * strength : 0)],
+                        startPoint: .topLeading,
+                        endPoint: .bottomTrailing
+                    )
+                )
+            )
+            .overlay(
+                shape.strokeBorder(
+                    isActive
+                        ? AnyShapeStyle(LinearGradient(colors: [tint.opacity(isHovered ? 0.60 : 0.42), tint.opacity(0.10)], startPoint: .topLeading, endPoint: .bottomTrailing))
+                        : AnyShapeStyle(isHovered ? BathysPalette.hairlineHover : BathysPalette.hairline),
+                    lineWidth: 1
+                )
+            )
+            .shadow(color: tint.opacity(isActive ? 0.18 * strength : 0), radius: 14, x: 0, y: 6)
+    }
+}
+
 // MARK: - Colore d'accento di ogni area
 
 extension ScanCategory {
@@ -1752,15 +1877,8 @@ struct CategoryTile: View {
         } label: {
             VStack(alignment: .leading, spacing: 0) {
                 HStack(alignment: .top) {
-                    ZStack {
-                        Circle()
-                            .fill(tint.opacity(on ? 0.18 : 0.08))
-                            .frame(width: 44, height: 44)
-                            .overlay(Circle().strokeBorder(tint.opacity(on ? 0.35 : 0.12), lineWidth: 1))
-                        Image(systemName: category.symbol)
-                            .font(.system(size: 17, weight: .medium))
-                            .foregroundStyle(on ? tint : BathysPalette.textTertiary)
-                    }
+                    GlowMedallion(symbol: category.symbol, tint: tint, size: 50, isActive: on)
+                        .scaleEffect(isHovered && on ? 1.06 : 1)
 
                     Spacer(minLength: 4)
 
@@ -1790,15 +1908,8 @@ struct CategoryTile: View {
             }
             .padding(14)
             .frame(maxWidth: .infinity, minHeight: 140, maxHeight: 140, alignment: .topLeading)
-            .background(
-                RoundedRectangle(cornerRadius: 16, style: .continuous)
-                    .fill(isHovered ? BathysPalette.surfaceFillHover : BathysPalette.surfaceFill)
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: 16, style: .continuous)
-                    .strokeBorder(on ? tint.opacity(isHovered ? 0.45 : 0.28) : (isHovered ? BathysPalette.hairlineHover : BathysPalette.hairline), lineWidth: 1)
-            )
-            .opacity(on ? 1 : 0.7)
+            .background(TintedSurface(tint: tint, cornerRadius: 16, isActive: on, isHovered: isHovered))
+            .opacity(on ? 1 : 0.72)
             .scaleEffect(isHovered ? 1.015 : 1)
             .contentShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
         }
@@ -1817,6 +1928,7 @@ struct CategoryTile: View {
 struct SpaciousCategoryCard: View {
     @Binding var category: ScanCategory
     var hasScanned: Bool = true
+    var totalBytes: Int64 = 0
     @State private var hover = false
 
     var body: some View {
@@ -1828,24 +1940,28 @@ struct SpaciousCategoryCard: View {
                     size: 19
                 )
 
-                ZStack {
-                    Circle()
-                        .fill(accentColor.opacity(0.14))
-                        .frame(width: 34, height: 34)
-                        .overlay(
-                            Circle()
-                                .strokeBorder(accentColor.opacity(0.24), lineWidth: 1)
-                        )
+                GlowMedallion(symbol: category.symbol, tint: accentColor, size: 36, isActive: category.isSelected)
 
-                    Image(systemName: category.symbol)
-                        .font(.system(size: 13.5, weight: .medium))
-                        .foregroundStyle(accentColor)
+                VStack(alignment: .leading, spacing: 6) {
+                    Text(category.title)
+                        .font(.system(size: 14.5, weight: .medium))
+                        .foregroundStyle(category.isSelected ? BathysPalette.textPrimary : BathysPalette.textSecondary)
+                        .lineLimit(1)
+
+                    // Quanto pesa quest'area sul totale trovato
+                    if hasScanned && totalBytes > 0 && category.bytes > 0 {
+                        GeometryReader { geo in
+                            ZStack(alignment: .leading) {
+                                Capsule().fill(Color.white.opacity(0.06))
+                                Capsule()
+                                    .fill(LinearGradient(colors: [accentColor.opacity(0.9), accentColor.opacity(0.5)], startPoint: .leading, endPoint: .trailing))
+                                    .frame(width: max(6, geo.size.width * CGFloat(Double(category.bytes) / Double(totalBytes))))
+                                    .opacity(category.isSelected ? 1 : 0.35)
+                            }
+                        }
+                        .frame(width: 180, height: 4)
+                    }
                 }
-
-                Text(category.title)
-                    .font(.system(size: 14.5, weight: .medium))
-                    .foregroundStyle(category.isSelected ? BathysPalette.textPrimary : BathysPalette.textSecondary)
-                    .lineLimit(1)
 
                 Spacer(minLength: 12)
 
@@ -1938,14 +2054,7 @@ struct SpaciousCategoryCard: View {
                 .padding(.bottom, 8)
             }
         }
-        .background(
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .fill(hover ? BathysPalette.surfaceFillHover : BathysPalette.surfaceFill)
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .strokeBorder(hover ? BathysPalette.hairlineHover : BathysPalette.hairline, lineWidth: 1)
-        )
+        .background(TintedSurface(tint: accentColor, cornerRadius: 14, isActive: category.isSelected && hasScanned, isHovered: hover, strength: 0.6))
         .onHover { hovering in
             withAnimation(.easeOut(duration: 0.16)) {
                 hover = hovering
@@ -3105,21 +3214,21 @@ struct PrivacyOnboardingSheet: View {
                         icon: "network.slash",
                         tint: BathysPalette.sky,
                         title: "Nessun Dato Inviato, Nessun Tracciamento",
-                        description: "Tutte le analisi avvengono sul tuo Mac. Nessun dato, nome di file o statistica lascia il computer: l'unica connessione è il controllo degli aggiornamenti di Bathys."
+                        description: "Tutto avviene sul tuo Mac. Bathys si collega solo per cercare aggiornamenti."
                     )
 
                     PrivacyPillarRow(
                         icon: "lock.fill",
                         tint: BathysPalette.emerald,
                         title: "Dati Personali Intoccabili",
-                        description: "Documenti, Foto, Scrivania, Messaggi, Mail e Portachiavi (Keychains) non vengono mai letti né aperti. Vengono analizzati esclusivamente file temporanei e cache usa-e-getta."
+                        description: "Documenti, foto, messaggi e password non vengono mai aperti."
                     )
 
                     PrivacyPillarRow(
                         icon: "hand.raised.fill",
                         tint: BathysPalette.amber,
                         title: "Nessuna Cancellazione Autonoma",
-                        description: "Le scansioni operano in sola lettura. Nessun elemento viene spostato nel Cestino senza la tua esplicita conferma."
+                        description: "Niente viene rimosso senza la tua conferma."
                     )
 
                     // Full Disk Access Row
@@ -3140,7 +3249,7 @@ struct PrivacyOnboardingSheet: View {
                                     .foregroundStyle(.white)
                                     .fixedSize(horizontal: false, vertical: true)
 
-                                Text("Necessario per calcolare le cache applicative in ~/Library e /var/folders.")
+                                Text("Serve per trovare tutte le cache.")
                                     .font(.system(size: 12, weight: .regular))
                                     .foregroundStyle(BathysPalette.textTertiary)
                                     .fixedSize(horizontal: false, vertical: true)
@@ -3184,7 +3293,7 @@ struct PrivacyOnboardingSheet: View {
                                 Image(systemName: "lightbulb.fill")
                                     .font(.system(size: 11))
                                     .foregroundStyle(BathysPalette.amber)
-                                Text("Basta una volta sola: premi \"Apri Impostazioni\" e attiva la levetta per Bathys. Da quel momento analizzerà tutto il Mac senza mai più chiederti permessi individuali.")
+                                Text("Si fa una volta sola: apri Impostazioni e attiva Bathys.")
                                     .font(.system(size: 11.5, weight: .regular))
                                     .foregroundStyle(BathysPalette.textSecondary)
                                     .fixedSize(horizontal: false, vertical: true)

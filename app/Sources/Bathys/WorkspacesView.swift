@@ -131,9 +131,6 @@ struct SonarDiskWorkspace: View {
                         Spacer()
                     }
 
-                    Text("Mappa visiva dello spazio • Analisi topologica settori APFS.")
-                        .font(.system(size: 12.5, weight: .regular))
-                        .foregroundStyle(BathysPalette.textTertiary)
                 }
                 .frame(height: 58, alignment: .leading)
                 .padding(.horizontal, 40)
@@ -1005,12 +1002,12 @@ struct UninstallerWorkspace: View {
         .sheet(isPresented: $uninstaller.showUninstallConfirmation) {
             if let app = uninstaller.selectedApp {
                 let isReset = uninstaller.isResetOnlyMode
-                let runningNote = app.isRunning ? " L'applicazione è attualmente aperta e verrà chiusa in sicurezza prima dell'operazione." : ""
+                let runningNote = app.isRunning ? " Verrà prima chiusa." : ""
                 TrashConfirmationSheet(
                     title: isReset ? "Ripristinare i dati di \(app.name)?" : "Disinstallare \(app.name)?",
                     subtitle: (isReset
-                        ? "L'applicazione rimarrà installata in /Applications, mentre cache, preferenze e file di stato selezionati verranno spostati nel Cestino."
-                        : "L'applicazione e tutti i suoi file di supporto, cache e preferenze selezionati verranno spostati nel Cestino.") + runningNote,
+                        ? "L'app resta installata. I suoi dati vanno nel Cestino."
+                        : "L'app e i suoi file vanno nel Cestino.") + runningNote,
                     bytes: uninstaller.totalSelectedBytes,
                     confirmLabel: isReset ? "Reset Dati" : "Disinstalla",
                     previewItems: uninstaller.residuals.filter(\.isSelected).map {
@@ -1037,18 +1034,16 @@ struct ResidualItemRow: View {
                 size: 18
             )
 
+            GlowMedallion(symbol: kindSymbol, tint: kindTint, size: 32, isActive: item.isSelected)
+
             VStack(alignment: .leading, spacing: 1.5) {
                 Text(humanKindTitle(for: item.kind, name: item.name))
                     .font(.system(size: 13, weight: .medium))
                     .foregroundStyle(item.isSelected ? .white : BathysPalette.textSecondary)
                     .lineLimit(1)
 
-                Text(item.displayPath)
-                    .font(.system(size: 11, weight: .regular))
-                    .foregroundStyle(BathysPalette.textTertiary)
-                    .lineLimit(1)
-                    .truncationMode(.middle)
             }
+            .help("\(item.name) — \(item.displayPath)")
 
             Spacer()
 
@@ -1086,16 +1081,40 @@ struct ResidualItemRow: View {
         }
     }
 
+    private var kindSymbol: String {
+        switch item.kind {
+        case .appBundle: return "app.dashed"
+        case .appSupport: return "folder.fill"
+        case .container: return "shippingbox.fill"
+        case .cache: return "archivebox.fill"
+        case .preferences: return "slider.horizontal.3"
+        case .launchAgent: return "power"
+        case .stateAndLogs: return "doc.text.fill"
+        case .receipt: return "doc.badge.ellipsis"
+        }
+    }
+
+    private var kindTint: Color {
+        switch item.kind {
+        case .appBundle: return BathysPalette.coral
+        case .appSupport, .container: return BathysPalette.sky
+        case .cache: return BathysPalette.teal
+        case .preferences: return BathysPalette.steel
+        case .launchAgent: return BathysPalette.amber
+        case .stateAndLogs, .receipt: return BathysPalette.yellow
+        }
+    }
+
     private func humanKindTitle(for kind: AppResidualItem.Kind, name: String) -> String {
         switch kind {
-        case .appBundle: return "Applicazione (\(name))"
-        case .appSupport: return "File di supporto (\(name))"
-        case .container: return "Container isolato (\(name))"
-        case .cache: return "Cache (\(name))"
-        case .preferences: return "Preferenze (\(name))"
-        case .launchAgent: return "Agente di avvio (\(name))"
-        case .stateAndLogs: return "Stato finestre e log (\(name))"
-        case .receipt: return "Ricevuta installazione (\(name))"
+        case .appBundle: return L10n.lang == .italian ? "L'applicazione" : "The app"
+        case .appSupport: return L10n.lang == .italian ? "Dati dell'app" : "App data"
+        case .container: return L10n.lang == .italian ? "Dati protetti" : "Sandboxed data"
+        case .cache: return "Cache"
+        case .preferences: return L10n.lang == .italian ? "Impostazioni" : "Settings"
+        case .launchAgent: return L10n.lang == .italian ? "Avvio automatico" : "Login item"
+        case .stateAndLogs: return L10n.lang == .italian ? "Finestre e registri" : "Windows & logs"
+        case .receipt: return L10n.lang == .italian ? "Ricevuta di installazione" : "Install receipt"
         }
     }
 }
@@ -1193,6 +1212,8 @@ struct OptimizationWorkspace: View {
 
     private var maintenanceSectionBody: some View {
         VStack(alignment: .leading, spacing: 0) {
+            Spacer(minLength: 0)
+
             VStack(alignment: .leading, spacing: 8) {
                 ForEach($optimizer.tasks) { $task in
                     HStack(spacing: 14) {
@@ -1202,24 +1223,13 @@ struct OptimizationWorkspace: View {
                             size: 19
                         )
 
-                        ZStack {
-                            Circle()
-                                .fill(BathysPalette.emerald.opacity(0.14))
-                                .frame(width: 34, height: 34)
-                                .overlay(Circle().strokeBorder(BathysPalette.emerald.opacity(0.24), lineWidth: 1))
-                            Image(systemName: task.symbol)
-                                .font(.system(size: 13.5, weight: .medium))
-                                .foregroundStyle(BathysPalette.emerald)
-                        }
+                        GlowMedallion(symbol: task.symbol, tint: BathysPalette.emerald, size: 36, isActive: task.isSelected)
 
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(task.title)
-                                .font(.system(size: 14, weight: .medium))
-                                .foregroundStyle(.white)
-                            Text(task.subtitle)
-                                .font(.system(size: 12, weight: .regular))
-                                .foregroundStyle(BathysPalette.textTertiary)
-                        }
+                        Text(task.title)
+                            .font(.system(size: 14.5, weight: .medium))
+                            .foregroundStyle(.white)
+                            .lineLimit(1)
+                            .help(task.subtitle)
 
                         Spacer()
 
@@ -1227,14 +1237,7 @@ struct OptimizationWorkspace: View {
                     }
                     .padding(.horizontal, 16)
                     .padding(.vertical, 11)
-                    .background(
-                        RoundedRectangle(cornerRadius: 13, style: .continuous)
-                            .fill(BathysPalette.surfaceFill)
-                    )
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 13, style: .continuous)
-                            .strokeBorder(BathysPalette.hairline, lineWidth: 1)
-                    )
+                    .background(TintedSurface(tint: BathysPalette.emerald, cornerRadius: 13, isActive: task.isSelected, strength: 0.6))
                 }
             }
             .padding(.horizontal, 48)
@@ -1315,12 +1318,8 @@ struct OptimizationWorkspace: View {
                                 }
                             }
 
-                            Text(agent.executablePath)
-                                .font(.system(size: 12, weight: .regular))
-                                .foregroundStyle(BathysPalette.textTertiary)
-                                .lineLimit(1)
-                                .truncationMode(.middle)
                         }
+                        .help(agent.executablePath)
 
                         Spacer()
 

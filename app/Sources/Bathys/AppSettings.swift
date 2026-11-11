@@ -73,8 +73,8 @@ enum L10n {
 
     static var homeSubtitle: String {
         lang == .italian
-            ? "Seleziona uno strumento per scandagliare il disco, rimuovere file inutili e ottimizzare il tuo Mac."
-            : "Select a tool to scan disk space, remove junk files and optimize your Mac."
+            ? "Scegli cosa fare."
+            : "Choose what to do."
     }
 
     static var protectionActive: String {
@@ -91,8 +91,8 @@ enum L10n {
 
     static var deepScanDesc: String {
         lang == .italian
-            ? "Rimuovi cache di sistema, file temporanei e residui di sviluppo."
-            : "Remove system caches, temporary files, and development remnants."
+            ? "Libera spazio da cache e file inutili."
+            : "Free up space from caches and junk."
     }
 
     static var sonarTitle: String {
@@ -101,8 +101,8 @@ enum L10n {
 
     static var sonarDesc: String {
         lang == .italian
-            ? "Esplora la mappa del disco e individua subito i file più pesanti."
-            : "Explore your disk map and instantly spot the largest files."
+            ? "Scopri cosa occupa il disco."
+            : "See what fills your disk."
     }
 
     static var uninstallerTitle: String {
@@ -111,8 +111,8 @@ enum L10n {
 
     static var uninstallerDesc: String {
         lang == .italian
-            ? "Elimina le applicazioni insieme a tutti i loro file nascosti."
-            : "Delete applications together with all their hidden remnants."
+            ? "Rimuovi app e i loro avanzi."
+            : "Remove apps and their leftovers."
     }
 
     static var optimizerTitle: String {
@@ -121,8 +121,8 @@ enum L10n {
 
     static var optimizerDesc: String {
         lang == .italian
-            ? "Ottimizza la memoria, ripara le cache e gestisci l'avvio."
-            : "Optimize memory, purge caches, and manage startup items."
+            ? "Piccole cure per il tuo Mac."
+            : "Small care for your Mac."
     }
 
     static var toolsBack: String {

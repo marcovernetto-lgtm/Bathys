@@ -45,40 +45,40 @@ final class OptimizerEngine {
     var tasks: [OptimizationTaskItem] = [
         .init(
             id: "quicklook",
-            titleIT: "Rigenera anteprime QuickLook e icone Finder",
-            titleEN: "Rebuild QuickLook Previews & Finder Icons",
+            titleIT: "Anteprime dei file",
+            titleEN: "File previews",
             subtitleIT: "Ripristina le miniature dei file bloccate o non aggiornate",
             subtitleEN: "Resets stuck or outdated file thumbnails across Finder",
             symbol: "eye"
         ),
         .init(
             id: "dns",
-            titleIT: "Svuota cache DNS locale",
-            titleEN: "Flush Local DNS Cache",
+            titleIT: "Connessione di rete",
+            titleEN: "Network connection",
             subtitleIT: "Aggiorna la risoluzione dei domini e velocizza le connessioni di rete",
             subtitleEN: "Refreshes domain resolution and speeds up network lookups",
             symbol: "network"
         ),
         .init(
             id: "savedstate",
-            titleIT: "Pulisci stati finestre obsoleti",
-            titleEN: "Purge Stale Window States",
+            titleIT: "Finestre dimenticate",
+            titleEN: "Forgotten windows",
             subtitleIT: "Rimuove i salvataggi automatici delle finestre più vecchi di 30 giorni",
             subtitleEN: "Removes saved application window states older than 30 days",
             symbol: "macwindow"
         ),
         .init(
             id: "dsstore",
-            titleIT: "Rimuovi file di vista .DS_Store",
-            titleEN: "Clean .DS_Store View Files",
+            titleIT: "Ordine delle cartelle",
+            titleEN: "Folder views",
             subtitleIT: "Ripristina l'ordine di visualizzazione nelle cartelle Download e Documenti",
             subtitleEN: "Resets folder view metadata in Downloads, Documents, and Desktop",
             symbol: "square.grid.2x2"
         ),
         .init(
             id: "brokenplist",
-            titleIT: "Ripara file di preferenze danneggiati",
-            titleEN: "Repair Corrupted Preference Files",
+            titleIT: "Impostazioni danneggiate",
+            titleEN: "Damaged settings",
             subtitleIT: "Individua e rimuove i file di configurazione vuoti o corrotti",
             subtitleEN: "Finds and removes 0-byte or malformed .plist preference files",
             symbol: "wrench.and.screwdriver"
