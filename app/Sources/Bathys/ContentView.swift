@@ -48,39 +48,6 @@ enum BathysPalette {
 
 // MARK: - Asset Helper with In-Memory Static Cache
 
-enum BathysAsset {
-    private static let names = [
-        "algae_blue_wavy", "algae_green_mid", "algae_green_tall", "algae_ribbon_center", "algae_teal_small",
-        "coral_orange_anemone", "coral_orange_branch", "coral_purple_fan", "coral_red_fingers",
-        "fish_blue_1", "fish_blue_2", "fish_orange_1", "fish_orange_2", "fish_pink_1", "fish_pink_2",
-        "submarine_yellow", "submarine_hull", "seafloor_sand_bed", "seafloor_sand_foreground",
-        "trash_oil_drum", "trash_tire", "trash_wood_crate", "trash_glass_bottle", "trash_plastic_bottle", "trash_plastic_bag",
-        "bathys_periscope_logo"
-    ]
-
-    private static let cache: [String: Image] = {
-        var map: [String: Image] = [:]
-        for name in names {
-            if let url = ResourceLocator.url(forResource: name, withExtension: "png"),
-               let img = NSImage(contentsOf: url) {
-                map[name] = Image(nsImage: img)
-            }
-        }
-        return map
-    }()
-
-    static func image(named name: String) -> Image {
-        if let cached = cache[name] {
-            return cached
-        }
-        if let url = ResourceLocator.url(forResource: name, withExtension: "png"),
-           let img = NSImage(contentsOf: url) {
-            return Image(nsImage: img)
-        }
-        return Image(systemName: "photo")
-    }
-}
-
 // MARK: - Main ContentView Shell
 
 struct ContentView: View {
@@ -134,9 +101,9 @@ struct ContentView: View {
             // RIGHT: Breathable Workspace (2x2 Hub at Opening, or Selected Module)
             ZStack {
                 LinearGradient(
-                    colors: [BathysPalette.workspaceTop, BathysPalette.workspaceBottom],
-                    startPoint: .topLeading,
-                    endPoint: .bottomTrailing
+                    colors: [DS.Ink.ground, DS.Ink.groundDeep],
+                    startPoint: .top,
+                    endPoint: .bottom
                 )
 
                 if let mode = activeMode {
@@ -186,6 +153,22 @@ struct ContentView: View {
                 }
             }
 
+            // Opzioni di avvio per i test visivi (non usate nel normale utilizzo)
+            if CommandLine.arguments.contains("--settings-sheet") {
+                showSettingsSheet = true
+            }
+            if CommandLine.arguments.contains("--confirm-sheet") {
+                activeMode = .deepClean
+                Task { @MainActor in
+                    try? await Task.sleep(for: .milliseconds(250))
+                    scanner.scan()
+                    while scanner.isScanning || !scanner.hasScanned {
+                        try? await Task.sleep(for: .milliseconds(100))
+                    }
+                    scanner.showCleanConfirmation = true
+                }
+            }
+
             if CommandLine.arguments.contains("--auto-clean") {
                 activeMode = .deepClean
                 Task { @MainActor in
@@ -201,203 +184,136 @@ struct ContentView: View {
         }
     }
 
-    // MARK: - HOME HUB: Symmetrical 2x2 Grid (2 Above, 2 Below)
+    // MARK: - HOME: marchio, quattro strumenti, barra di stato
 
     private var homeGridHub: some View {
-        VStack(alignment: .center, spacing: 0) {
-            // 1. Hero Brand Zone — Positioned higher up with completely open sky above it
-            VStack(alignment: .center, spacing: 10) {
-                BathysAsset.image(named: "bathys_periscope_logo")
-                    .resizable()
-                    .aspectRatio(contentMode: .fit)
-                    .frame(height: 104)
-                    .shadow(color: Color.black.opacity(0.45), radius: 14, x: 0, y: 6)
-
+        VStack(alignment: .leading, spacing: 0) {
+            // 1. Marchio e sottotitolo
+            VStack(alignment: .leading, spacing: DS.Space.s) {
+                BathysWordmark(height: 52)
                 Text(L10n.homeSubtitle)
-                    .font(.system(size: 14, weight: .regular))
-                    .foregroundStyle(BathysPalette.textSecondary)
-                    .multilineTextAlignment(.center)
-                    .lineLimit(1)
+                    .font(DS.Font.body)
+                    .foregroundStyle(DS.Ink.secondary)
+                    .lineSpacing(2)
+                    .fixedSize(horizontal: false, vertical: true)
             }
-            .frame(maxWidth: .infinity)
-            .padding(.top, 6)
-            .padding(.bottom, 26)
-            .onAppear {
-                optimizer.refreshTelemetry()
-            }
+            .padding(.bottom, DS.Space.xxl)
+            .onAppear { optimizer.refreshTelemetry() }
 
-            // 2. Symmetrical 2x2 Grid (Centered & Enlarged Minimal Icons)
-            VStack(spacing: 18) {
-                HStack(spacing: 18) {
-                    HomeModuleCard(mode: .deepClean) {
-                        openMode(.deepClean)
-                    }
-                    HomeModuleCard(mode: .sonar) {
-                        openMode(.sonar)
-                    }
+            // 2. Strumenti 2×2
+            Grid(horizontalSpacing: DS.Space.m, verticalSpacing: DS.Space.m) {
+                GridRow {
+                    HomeModuleCard(mode: .deepClean) { openMode(.deepClean) }
+                    HomeModuleCard(mode: .sonar) { openMode(.sonar) }
                 }
-
-                HStack(spacing: 18) {
-                    HomeModuleCard(mode: .uninstaller) {
-                        openMode(.uninstaller)
-                    }
-                    HomeModuleCard(mode: .optimizer) {
-                        openMode(.optimizer)
-                    }
+                GridRow {
+                    HomeModuleCard(mode: .uninstaller) { openMode(.uninstaller) }
+                    HomeModuleCard(mode: .optimizer) { openMode(.optimizer) }
                 }
             }
 
-            Spacer(minLength: 20)
+            Spacer(minLength: DS.Space.xl)
 
-            // 3. Unified Bottom Bar: Telemetry + Privacy & Permissions + Settings Gear
-            HStack(spacing: 10) {
-                // System Telemetry Pill (Click to open Optimizer)
+            // 3. Barra di stato
+            homeStatusBar
+        }
+        .padding(.horizontal, DS.Space.gutter)
+        .padding(.top, DS.Space.xxxl)
+        .padding(.bottom, DS.Space.xl)
+    }
+
+    private var homeStatusBar: some View {
+        HStack(spacing: DS.Space.s) {
+            // Disco e memoria (apre Prestazioni)
+            Button {
+                openMode(.optimizer)
+            } label: {
+                HStack(spacing: DS.Space.l) {
+                    DSMeter(
+                        icon: "internaldrive",
+                        label: L10n.lang == .italian ? "Disco" : "Disk",
+                        value: "\(ByteCountFormatter.string(fromByteCount: optimizer.diskFreeBytes, countStyle: .file)) " + (L10n.lang == .italian ? "liberi" : "free"),
+                        fraction: optimizer.diskUsedFraction,
+                        tint: optimizer.diskUsedFraction > 0.9 ? BathysPalette.amber : BathysPalette.sky
+                    )
+                    Rectangle().fill(DS.Ink.hairline).frame(width: 1, height: 20)
+                    DSMeter(
+                        icon: "memorychip",
+                        label: "RAM",
+                        value: String(format: "%.0f%%", optimizer.ramUsedFraction * 100),
+                        fraction: optimizer.ramUsedFraction,
+                        tint: optimizer.ramUsedFraction > 0.8 ? BathysPalette.amber : BathysPalette.emerald
+                    )
+                }
+                .padding(.horizontal, DS.Space.m)
+                .frame(height: 44)
+                .dsSurface(radius: DS.Radius.control + 3)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(TactileCardButtonStyle())
+            .help(L10n.lang == .italian ? "Apri Prestazioni" : "Open Performance")
+
+            Spacer(minLength: DS.Space.s)
+
+            // Aggiornamento (solo quando c'è qualcosa da segnalare)
+            if updateManager.showUpdateBanner || (updateManager.status != .idle && updateManager.status != .upToDate && updateManager.status != .checking) {
                 Button {
-                    openMode(.optimizer)
-                } label: {
-                    HStack(spacing: 16) {
-                        // Free Disk Space + Mini Bar
-                        HStack(spacing: 7) {
-                            Image(systemName: "internaldrive.fill")
-                                .font(.system(size: 11, weight: .semibold))
-                                .foregroundStyle(BathysPalette.sky)
-
-                            Text("\(L10n.lang == .italian ? "Disco libero:" : "Free disk:") \(ByteCountFormatter.string(fromByteCount: optimizer.diskFreeBytes, countStyle: .file))")
-                                .font(.system(size: 11.5, weight: .medium, design: .monospaced))
-                                .foregroundStyle(BathysPalette.textSecondary)
-
-                            ZStack(alignment: .leading) {
-                                Capsule()
-                                    .fill(Color.white.opacity(0.08))
-                                    .frame(width: 40, height: 4)
-                                Capsule()
-                                    .fill(BathysPalette.sky)
-                                    .frame(width: max(4, 40 * CGFloat(min(max(optimizer.diskUsedFraction, 0.05), 1.0))), height: 4)
-                            }
-                        }
-
-                        Rectangle()
-                            .fill(Color.white.opacity(0.12))
-                            .frame(width: 1, height: 12)
-
-                        // RAM Usage + Mini Bar
-                        HStack(spacing: 7) {
-                            Circle()
-                                .fill(optimizer.ramUsedFraction > 0.80 ? BathysPalette.amber : BathysPalette.emerald)
-                                .frame(width: 6, height: 6)
-
-                            Text(String(format: "RAM: %.0f%%", optimizer.ramUsedFraction * 100))
-                                .font(.system(size: 11.5, weight: .medium, design: .monospaced))
-                                .foregroundStyle(BathysPalette.textSecondary)
-
-                            ZStack(alignment: .leading) {
-                                Capsule()
-                                    .fill(Color.white.opacity(0.08))
-                                    .frame(width: 40, height: 4)
-                                Capsule()
-                                    .fill(optimizer.ramUsedFraction > 0.80 ? BathysPalette.amber : BathysPalette.emerald)
-                                    .frame(width: max(4, 40 * CGFloat(min(max(optimizer.ramUsedFraction, 0.05), 1.0))), height: 4)
-                            }
-                        }
+                    if case .readyToRestart = updateManager.status {
+                        updateManager.relaunchApplication()
+                    } else {
+                        showSettingsSheet = true
                     }
-                    .padding(.horizontal, 15)
-                    .padding(.vertical, 7)
-                    .frame(height: 34)
-                    .background(Capsule().fill(BathysPalette.surfaceFill))
-                    .overlay(Capsule().strokeBorder(BathysPalette.hairline, lineWidth: 1))
-                }
-                .buttonStyle(.plain)
-                .help(L10n.lang == .italian ? "Stato disco e memoria del Mac (Clicca per Prestazioni)" : "Mac disk and memory status (Click for Optimizer)")
-
-                // Privacy & Full Disk Access Pill
-                Button {
-                    showPrivacySheet = true
                 } label: {
                     HStack(spacing: 6) {
-                        Image(systemName: permissionManager.hasFullDiskAccess ? "checkmark.shield.fill" : "shield.lefthalf.filled")
-                            .font(.system(size: 11.5, weight: .medium))
-                            .foregroundStyle(permissionManager.hasFullDiskAccess ? BathysPalette.emerald : BathysPalette.amber)
-                        Text(permissionManager.hasFullDiskAccess ? L10n.protectionActive : L10n.grantFullDiskAccess)
-                            .font(.system(size: 12, weight: .medium))
-                            .foregroundStyle(permissionManager.hasFullDiskAccess ? BathysPalette.textSecondary : BathysPalette.amber)
-                    }
-                    .padding(.horizontal, 13)
-                    .padding(.vertical, 7)
-                    .frame(height: 34)
-                    .background(Capsule().fill(permissionManager.hasFullDiskAccess ? BathysPalette.surfaceFill : BathysPalette.amber.opacity(0.12)))
-                    .overlay(Capsule().strokeBorder(permissionManager.hasFullDiskAccess ? BathysPalette.hairline : BathysPalette.amber.opacity(0.35), lineWidth: 1))
-                }
-                .buttonStyle(.plain)
-
-                // Update Notification Pill (when update is available, downloading, or ready to restart)
-                if updateManager.showUpdateBanner || (updateManager.status != .idle && updateManager.status != .upToDate && updateManager.status != .checking) {
-                    Button {
-                        if case .readyToRestart = updateManager.status {
-                            updateManager.relaunchApplication()
-                        } else {
-                            showSettingsSheet = true
+                        switch updateManager.status {
+                        case .readyToRestart:
+                            Image(systemName: "arrow.clockwise")
+                            Text(L10n.lang == .italian ? "Riavvia per aggiornare" : "Restart to update")
+                        case .downloading(let progress):
+                            ProgressView().controlSize(.mini).tint(DS.Ink.onAccent)
+                            Text(L10n.lang == .italian ? "Download \(Int(progress * 100))%" : "Downloading \(Int(progress * 100))%")
+                        case .available(let ver, _, _):
+                            Image(systemName: "sparkles")
+                            Text("v\(ver) " + (L10n.lang == .italian ? "disponibile" : "available"))
+                        case .error:
+                            Image(systemName: "exclamationmark.triangle.fill")
+                            Text(L10n.lang == .italian ? "Aggiornamento non riuscito" : "Update failed")
+                        default:
+                            Text(L10n.lang == .italian ? "Aggiornamento" : "Update")
                         }
-                    } label: {
-                        HStack(spacing: 6) {
-                            switch updateManager.status {
-                            case .readyToRestart:
-                                Image(systemName: "arrow.clockwise.circle.fill")
-                                    .font(.system(size: 11.5, weight: .bold))
-                                    .foregroundStyle(BathysPalette.emerald)
-                                Text(L10n.lang == .italian ? "Riavvia per completare" : "Restart to complete")
-                                    .font(.system(size: 12, weight: .semibold))
-                                    .foregroundStyle(Color.white)
-                            case .downloading(let progress):
-                                ProgressView()
-                                    .controlSize(.mini)
-                                Text(L10n.lang == .italian ? "Download \(Int(progress * 100))%" : "Downloading \(Int(progress * 100))%")
-                                    .font(.system(size: 12, weight: .medium))
-                                    .foregroundStyle(BathysPalette.sky)
-                            case .available(let ver, _, _):
-                                Image(systemName: "sparkles")
-                                    .font(.system(size: 11.5, weight: .bold))
-                                    .foregroundStyle(BathysPalette.amber)
-                                Text("v\(ver) " + (L10n.lang == .italian ? "disponibile" : "available"))
-                                    .font(.system(size: 12, weight: .semibold))
-                                    .foregroundStyle(Color.white)
-                            case .error:
-                                // Prima la pillola restava vuota in caso di errore di download/installazione
-                                Image(systemName: "exclamationmark.triangle.fill")
-                                    .font(.system(size: 11.5, weight: .bold))
-                                    .foregroundStyle(BathysPalette.amber)
-                                Text(L10n.lang == .italian ? "Aggiornamento non riuscito" : "Update failed")
-                                    .font(.system(size: 12, weight: .semibold))
-                                    .foregroundStyle(Color.white)
-                            default:
-                                EmptyView()
-                            }
-                        }
-                        .padding(.horizontal, 13)
-                        .padding(.vertical, 7)
-                        .frame(height: 34)
-                        .background(Capsule().fill(BathysPalette.sky.opacity(0.16)))
-                        .overlay(Capsule().strokeBorder(BathysPalette.sky.opacity(0.45), lineWidth: 1))
                     }
-                    .buttonStyle(.plain)
-                    .transition(.opacity.combined(with: .scale(scale: 0.96)))
                 }
+                .buttonStyle(.ds(.primary, tint: {
+                    if case .error = updateManager.status { return BathysPalette.amber }
+                    return BathysPalette.sky
+                }()))
+                .transition(.opacity.combined(with: .scale(scale: 0.96)))
+            }
 
-                // Circular Settings Button
-                BathysRoundIconButton(
-                    icon: "gearshape.fill",
-                    size: 34,
-                    iconSize: 13.5,
-                    tint: BathysPalette.sky,
-                    rotatesOnHover: true,
-                    helpText: L10n.settingsTitle
-                ) {
-                    showSettingsSheet = true
+            // Permessi
+            Button {
+                showPrivacySheet = true
+            } label: {
+                HStack(spacing: 6) {
+                    Image(systemName: permissionManager.hasFullDiskAccess ? "checkmark.shield.fill" : "exclamationmark.shield.fill")
+                        .foregroundStyle(permissionManager.hasFullDiskAccess ? BathysPalette.emerald : BathysPalette.amber)
+                    Text(permissionManager.hasFullDiskAccess ? L10n.protectionActive : L10n.grantFullDiskAccess)
                 }
             }
+            .buttonStyle(.ds(.secondary))
+
+            BathysRoundIconButton(
+                icon: "gearshape",
+                size: 32,
+                iconSize: 13,
+                tint: BathysPalette.sky,
+                rotatesOnHover: true,
+                helpText: L10n.settingsTitle
+            ) {
+                showSettingsSheet = true
+            }
+            .keyboardShortcut(",", modifiers: .command)
         }
-        .padding(.horizontal, 56)
-        .padding(.top, 22)
-        .padding(.bottom, 22)
     }
 
     private func openMode(_ mode: BathysMode) {
@@ -463,7 +379,7 @@ struct ContentView: View {
     }
 }
 
-// MARK: - 2x2 Home Grid Equal Button Card (Centered Enlarged Minimal Icon + Balanced Typography)
+// MARK: - Scheda modulo della home
 
 struct HomeModuleCard: View {
     let mode: BathysMode
@@ -472,93 +388,45 @@ struct HomeModuleCard: View {
 
     var body: some View {
         Button(action: action) {
-            ZStack(alignment: .topTrailing) {
-                // Subtle Top-Right Launch Indicator
-                ZStack {
-                    Circle()
-                        .fill(isHovered ? tintColor : Color.white.opacity(0.045))
-                        .frame(width: 28, height: 28)
-                        .overlay(
-                            Circle()
-                                .strokeBorder(
-                                    isHovered ? Color.white.opacity(0.35) : BathysPalette.hairline,
-                                    lineWidth: 1
-                                )
-                        )
-
-                    Image(systemName: "arrow.up.right")
-                        .font(.system(size: 11, weight: .bold))
-                        .foregroundStyle(isHovered ? Color(red: 0.03, green: 0.06, blue: 0.10) : BathysPalette.textTertiary)
-                        .offset(x: isHovered ? 0.5 : 0, y: isHovered ? -0.5 : 0)
-                }
-                .padding(16)
-
-                // Centered Icon + Title + Subtitle
-                VStack(alignment: .center, spacing: 14) {
+            VStack(alignment: .leading, spacing: 0) {
+                HStack(alignment: .top) {
                     BespokeModuleIcon(mode: mode, isHovered: isHovered)
-                        .frame(width: 72, height: 72)
-
-                    VStack(alignment: .center, spacing: 5) {
-                        Text(mode.title)
-                            .font(.system(size: 18, weight: .semibold))
-                            .tracking(-0.2)
-                            .foregroundStyle(isHovered ? .white : BathysPalette.textPrimary)
-
-                        Text(mode.shortDescription)
-                            .font(.system(size: 12.5, weight: .regular))
-                            .foregroundStyle(BathysPalette.textSecondary)
-                            .multilineTextAlignment(.center)
-                            .lineLimit(2)
-                            .lineSpacing(2)
-                            .fixedSize(horizontal: false, vertical: true)
-                    }
-                    .padding(.horizontal, 18)
+                        .frame(width: 56, height: 56)
+                    Spacer(minLength: DS.Space.s)
+                    Image(systemName: "arrow.right")
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(isHovered ? tintColor : DS.Ink.tertiary)
+                        .offset(x: isHovered ? 2 : 0)
+                        .padding(.top, 4)
                 }
-                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
-                .padding(.vertical, 18)
+
+                Spacer(minLength: DS.Space.m)
+
+                Text(mode.title)
+                    .font(DS.Font.title)
+                    .foregroundStyle(DS.Ink.primary)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.85)
+
+                Text(mode.shortDescription)
+                    .font(DS.Font.body)
+                    .foregroundStyle(DS.Ink.secondary)
+                    .lineSpacing(2)
+                    .lineLimit(2)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .padding(.top, 6)
             }
-            .frame(maxWidth: .infinity, minHeight: 192, maxHeight: 192)
-            .background(
-                RoundedRectangle(cornerRadius: 18, style: .continuous)
-                    .fill(
-                        LinearGradient(
-                            colors: [
-                                isHovered ? Color.white.opacity(0.088) : Color.white.opacity(0.048),
-                                isHovered ? Color.white.opacity(0.052) : Color.white.opacity(0.028)
-                            ],
-                            startPoint: .top,
-                            endPoint: .bottom
-                        )
-                    )
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: 18, style: .continuous)
-                    .strokeBorder(
-                        LinearGradient(
-                            colors: [
-                                isHovered ? Color.white.opacity(0.24) : Color.white.opacity(0.09),
-                                isHovered ? tintColor.opacity(0.32) : Color.white.opacity(0.04)
-                            ],
-                            startPoint: .topLeading,
-                            endPoint: .bottomTrailing
-                        ),
-                        lineWidth: 1.0
-                    )
-            )
-            .shadow(
-                color: Color.black.opacity(isHovered ? 0.42 : 0.20),
-                radius: isHovered ? 16 : 8,
-                x: 0,
-                y: isHovered ? 8 : 4
-            )
-            .offset(y: isHovered ? -2 : 0)
+            .padding(DS.Space.l)
+            .frame(maxWidth: .infinity, minHeight: 176, maxHeight: 208, alignment: .topLeading)
+            .dsSurface(radius: DS.Radius.card, isHovered: isHovered)
+            .contentShape(RoundedRectangle(cornerRadius: DS.Radius.card, style: .continuous))
         }
         .buttonStyle(TactileCardButtonStyle())
         .onHover { hovering in
-            withAnimation(.spring(response: 0.26, dampingFraction: 0.78)) {
-                isHovered = hovering
-            }
+            withAnimation(DS.Motion.quick) { isHovered = hovering }
         }
+        .accessibilityLabel(mode.title)
+        .accessibilityHint(mode.shortDescription)
     }
 
     private var tintColor: Color {
@@ -579,7 +447,7 @@ struct TactileCardButtonStyle: ButtonStyle {
     }
 }
 
-// MARK: - Bespoke Minimal Circular Icon (72x72 Clean Symmetrical Medallion)
+// MARK: - Icona modulo (tessera piatta colorata con vettore animato)
 
 struct BespokeModuleIcon: View {
     let mode: BathysMode
@@ -587,64 +455,24 @@ struct BespokeModuleIcon: View {
 
     var body: some View {
         ZStack {
-            // 1. Clean Matte Circular Medallion (72x72)
-            Circle()
-                .fill(
-                    LinearGradient(
-                        colors: [
-                            Color(red: 0.032, green: 0.060, blue: 0.108),
-                            Color(red: 0.052, green: 0.095, blue: 0.162)
-                        ],
-                        startPoint: .top,
-                        endPoint: .bottom
-                    )
-                )
-                .overlay(
-                    Circle()
-                        .fill(
-                            RadialGradient(
-                                colors: [
-                                    tintColor.opacity(isHovered ? 0.22 : 0.10),
-                                    Color.clear
-                                ],
-                                center: .center,
-                                startRadius: 2,
-                                endRadius: 34
-                            )
-                        )
-                )
-                .overlay(
-                    Circle()
-                        .strokeBorder(
-                            LinearGradient(
-                                colors: [
-                                    Color.white.opacity(isHovered ? 0.32 : 0.14),
-                                    tintColor.opacity(isHovered ? 0.45 : 0.18)
-                                ],
-                                startPoint: .topLeading,
-                                endPoint: .bottomTrailing
-                            ),
-                            lineWidth: 1.25
-                        )
-                )
-                .shadow(color: Color.black.opacity(0.30), radius: 6, x: 0, y: 3)
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .fill(tintColor.opacity(isHovered ? 0.20 : 0.13))
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .strokeBorder(tintColor.opacity(isHovered ? 0.40 : 0.22), lineWidth: 1)
 
-            // 2. Single Minimal Inner Ring (52x52 — zero ticks, zero crosshairs)
-            Circle()
-                .strokeBorder(tintColor.opacity(isHovered ? 0.38 : 0.20), lineWidth: 1.2)
-                .frame(width: 52, height: 52)
-
-            // 3. Clean Minimal Symmetrical Core Vector
-            switch mode {
-            case .deepClean:
-                DeepCleanAnimatedVector(isHovered: isHovered, tint: tintColor)
-            case .sonar:
-                SonarAnimatedVector(isHovered: isHovered, tint: tintColor)
-            case .uninstaller:
-                UninstallerAnimatedVector(isHovered: isHovered, tint: tintColor)
-            case .optimizer:
-                OptimizerAnimatedVector(isHovered: isHovered, tint: tintColor)
+            Group {
+                switch mode {
+                case .deepClean:
+                    DeepCleanAnimatedVector(isHovered: isHovered, tint: tintColor)
+                case .sonar:
+                    SonarAnimatedVector(isHovered: isHovered, tint: tintColor)
+                case .uninstaller:
+                    UninstallerAnimatedVector(isHovered: isHovered, tint: tintColor)
+                case .optimizer:
+                    OptimizerAnimatedVector(isHovered: isHovered, tint: tintColor)
+                }
             }
+            .scaleEffect(0.86)
         }
     }
 
@@ -899,45 +727,34 @@ struct OptimizerAnimatedVector: View {
     }
 }
 
-// MARK: - Shared Back Button Bar ("‹ Strumenti")
+// MARK: - Barra superiore condivisa ("‹ Strumenti")
 
 struct WorkspaceTopBar<Trailing: View>: View {
     let onBack: () -> Void
     @ViewBuilder var trailing: () -> Trailing
-    @State private var hoverBack = false
 
     var body: some View {
-        HStack(alignment: .center) {
+        HStack(alignment: .center, spacing: DS.Space.s) {
             Button(action: onBack) {
                 HStack(spacing: 6) {
                     Image(systemName: "chevron.left")
                         .font(.system(size: 11, weight: .semibold))
                     Text(L10n.toolsBack)
-                        .font(.system(size: 13.5, weight: .medium))
                 }
-                .foregroundStyle(hoverBack ? .white : BathysPalette.textSecondary)
-                .padding(.horizontal, 13)
-                .padding(.vertical, 7)
-                .background(
-                    Capsule()
-                        .fill(hoverBack ? BathysPalette.surfaceFillHover : BathysPalette.surfaceFill)
-                )
-                .overlay(
-                    Capsule()
-                        .strokeBorder(BathysPalette.hairline, lineWidth: 1)
-                )
             }
-            .buttonStyle(.plain)
-            .onHover { hoverBack = $0 }
+            .buttonStyle(.ds(.secondary))
+            .keyboardShortcut("[", modifiers: .command)
+            .help(L10n.lang == .italian ? "Torna agli strumenti (⌘[)" : "Back to tools (⌘[)")
 
-            Spacer()
+            Spacer(minLength: DS.Space.m)
 
             trailing()
         }
+        .frame(height: 32)
     }
 }
 
-// MARK: - Bathys Machined Round Controls (Zero Glossy AI Bubble, Zero Neon Blur, High-Craft Instrument Precision)
+// MARK: - Pulsante icona (quadrato arrotondato)
 
 struct BathysRoundIconButton: View {
     let icon: String
@@ -951,129 +768,80 @@ struct BathysRoundIconButton: View {
 
     @State private var isHovered = false
 
-    private var activeColor: Color {
-        isDestructive ? BathysPalette.coral : tint
-    }
+    private var activeColor: Color { isDestructive ? BathysPalette.coral : tint }
 
     var body: some View {
         Button(action: action) {
-            ZStack {
-                Circle()
-                    .fill(
-                        isHovered
-                            ? activeColor.opacity(isDestructive ? 0.18 : 0.14)
-                            : Color.white.opacity(0.045)
-                    )
-                    .frame(width: size, height: size)
-                    .overlay(
-                        Circle()
-                            .strokeBorder(
-                                LinearGradient(
-                                    colors: [
-                                        isHovered ? activeColor.opacity(0.55) : Color.white.opacity(0.14),
-                                        isHovered ? activeColor.opacity(0.22) : Color.white.opacity(0.05)
-                                    ],
-                                    startPoint: .topLeading,
-                                    endPoint: .bottomTrailing
-                                ),
-                                lineWidth: 1.0
-                            )
-                    )
-
-                Image(systemName: icon)
-                    .font(.system(size: iconSize, weight: .semibold))
-                    .foregroundStyle(isHovered ? (isDestructive ? BathysPalette.coral : .white) : BathysPalette.textSecondary)
-                    .rotationEffect(.degrees(rotatesOnHover && isHovered ? 45 : 0))
-            }
-            .contentShape(Circle())
+            Image(systemName: icon)
+                .font(.system(size: iconSize, weight: .semibold))
+                .foregroundStyle(isHovered ? activeColor : DS.Ink.secondary)
+                .rotationEffect(.degrees(rotatesOnHover && isHovered ? 60 : 0))
+                .frame(width: size, height: size)
+                .background(
+                    RoundedRectangle(cornerRadius: DS.Radius.control, style: .continuous)
+                        .fill(isHovered ? activeColor.opacity(0.13) : DS.Ink.surfaceRaised)
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: DS.Radius.control, style: .continuous)
+                        .strokeBorder(isHovered ? activeColor.opacity(0.35) : DS.Ink.hairline, lineWidth: 1)
+                )
+                .contentShape(RoundedRectangle(cornerRadius: DS.Radius.control, style: .continuous))
         }
         .buttonStyle(TactileRoundMicroButtonStyle())
         .onHover { hovering in
-            withAnimation(.spring(response: 0.24, dampingFraction: 0.72)) {
-                isHovered = hovering
-            }
+            withAnimation(DS.Motion.quick) { isHovered = hovering }
         }
         .help(helpText ?? "")
+        .accessibilityLabel(helpText ?? icon)
     }
 }
+
+// MARK: - Casella di selezione
 
 struct BathysRoundCheckButton: View {
     @Binding var isSelected: Bool
     var tint: Color = BathysPalette.sky
-    var size: CGFloat = 20
+    var size: CGFloat = 18
 
     @State private var isHovered = false
 
     var body: some View {
         Button {
-            withAnimation(.spring(response: 0.24, dampingFraction: 0.70)) {
-                isSelected.toggle()
-            }
+            withAnimation(DS.Motion.quick) { isSelected.toggle() }
         } label: {
             ZStack {
-                // Outer machined bezel ring
-                Circle()
-                    .fill(
-                        isSelected
-                            ? LinearGradient(
-                                colors: [tint, tint.opacity(0.78)],
-                                startPoint: .topLeading,
-                                endPoint: .bottomTrailing
-                            )
-                            : LinearGradient(
-                                colors: [
-                                    Color.white.opacity(isHovered ? 0.09 : 0.035),
-                                    Color.black.opacity(0.22)
-                                ],
-                                startPoint: .topLeading,
-                                endPoint: .bottomTrailing
-                            )
-                    )
-                    .frame(width: size, height: size)
-                    .overlay(
-                        Circle()
-                            .strokeBorder(
-                                isSelected
-                                    ? Color.white.opacity(0.38)
-                                    : (isHovered ? tint.opacity(0.55) : Color.white.opacity(0.20)),
-                                lineWidth: 1.15
-                            )
-                    )
-                    .shadow(
-                        color: Color.black.opacity(0.30),
-                        radius: 2,
-                        x: 0,
-                        y: 1
-                    )
-
+                RoundedRectangle(cornerRadius: 5.5, style: .continuous)
+                    .fill(isSelected ? tint : Color.white.opacity(isHovered ? 0.08 : 0.03))
+                RoundedRectangle(cornerRadius: 5.5, style: .continuous)
+                    .strokeBorder(isSelected ? Color.clear : (isHovered ? tint.opacity(0.7) : Color.white.opacity(0.30)), lineWidth: 1.5)
                 if isSelected {
                     Image(systemName: "checkmark")
-                        .font(.system(size: size * 0.48, weight: .bold))
-                        .foregroundStyle(Color(red: 0.024, green: 0.043, blue: 0.075))
-                        .transition(.scale(scale: 0.4).combined(with: .opacity))
+                        .font(.system(size: size * 0.56, weight: .heavy))
+                        .foregroundStyle(DS.Ink.onAccent)
+                        .transition(.scale(scale: 0.5).combined(with: .opacity))
                 }
             }
-            .frame(width: size + 4, height: size + 4)
-            .contentShape(Circle())
+            .frame(width: size, height: size)
+            .frame(width: size + 10, height: size + 10)
+            .contentShape(Rectangle())
         }
         .buttonStyle(TactileRoundMicroButtonStyle())
         .onHover { hovering in
-            withAnimation(.easeOut(duration: 0.16)) {
-                isHovered = hovering
-            }
+            withAnimation(DS.Motion.quick) { isHovered = hovering }
         }
+        .accessibilityAddTraits(isSelected ? [.isSelected] : [])
     }
 }
 
 struct TactileRoundMicroButtonStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
-            .scaleEffect(configuration.isPressed ? 0.90 : 1.0)
+            .scaleEffect(configuration.isPressed ? 0.92 : 1.0)
             .animation(.spring(response: 0.18, dampingFraction: 0.72), value: configuration.isPressed)
     }
 }
 
-// MARK: - Bathys Machined Bathymetric Instrument Button (Zero Glossy Bubble, Precision Gauge Bezel)
+// MARK: - Bathys Primary Action Button (pulsante principale piatto con alone luminoso)
 
 struct CircularActionOrbButton: View {
     let label: String
@@ -1084,201 +852,68 @@ struct CircularActionOrbButton: View {
     let action: () -> Void
 
     @State private var isHovered = false
-    @State private var dialRotation: Double = 0.0
 
     var body: some View {
         Button(action: action) {
             ZStack {
-                // 1. Recessed Anodized Instrument Socket (126pt)
+                // Anello esterno sottile
                 Circle()
-                    .fill(
-                        LinearGradient(
-                            colors: [
-                                Color(red: 0.020, green: 0.038, blue: 0.068),
-                                Color(red: 0.045, green: 0.082, blue: 0.138)
-                            ],
-                            startPoint: .top,
-                            endPoint: .bottom
-                        )
-                    )
-                    .frame(width: 126, height: 126)
-                    .overlay(
-                        Circle()
-                            .strokeBorder(
-                                LinearGradient(
-                                    colors: [
-                                        Color.black.opacity(0.65),
-                                        Color.white.opacity(0.14)
-                                    ],
-                                    startPoint: .top,
-                                    endPoint: .bottom
-                                ),
-                                lineWidth: 1.2
-                            )
-                    )
-                    .shadow(color: Color.black.opacity(0.55), radius: 12, x: 0, y: 6)
+                    .strokeBorder(tint.opacity(0.35), lineWidth: 1.5)
+                    .frame(width: 118, height: 118)
 
-                // 2. Precision 60-Tick Bathymetric Compass Ring & Active Sector Arc
-                Canvas { context, size in
-                    let center = CGPoint(x: size.width / 2, y: size.height / 2)
-                    let outerR: CGFloat = 58.5
-                    let tickCount = 60
-
-                    for i in 0..<tickCount {
-                        let isMajor = (i % 5 == 0)
-                        let isCardinal = (i % 15 == 0)
-                        let angle = Double(i) * (2.0 * .pi / Double(tickCount))
-                        let innerR = outerR - (isCardinal ? 5.5 : (isMajor ? 4.0 : 2.2))
-
-                        let p1 = CGPoint(
-                            x: center.x + innerR * CGFloat(cos(angle)),
-                            y: center.y + innerR * CGFloat(sin(angle))
-                        )
-                        let p2 = CGPoint(
-                            x: center.x + outerR * CGFloat(cos(angle)),
-                            y: center.y + outerR * CGFloat(sin(angle))
-                        )
-
-                        var tick = Path()
-                        tick.move(to: p1)
-                        tick.addLine(to: p2)
-
-                        let tickOpacity: Double = isCardinal
-                            ? (isHovered ? 0.90 : 0.55)
-                            : (isMajor ? (isHovered ? 0.55 : 0.30) : (isHovered ? 0.28 : 0.14))
-                        let tickColor = isCardinal ? tint.opacity(tickOpacity) : Color.white.opacity(tickOpacity)
-
-                        context.stroke(
-                            tick,
-                            with: .color(tickColor),
-                            style: StrokeStyle(lineWidth: isCardinal ? 1.5 : 1.0, lineCap: .round)
-                        )
-                    }
-                }
-                .frame(width: 126, height: 126)
-                .rotationEffect(.degrees(dialRotation))
-
-                // 3. Illuminated Perimeter Gauge Ring on Hover
+                // Disco pieno con sfumatura del colore del modulo
                 Circle()
-                    .trim(from: 0.0, to: isHovered ? 1.0 : 0.25)
-                    .stroke(
-                        AngularGradient(
-                            colors: [
-                                tint.opacity(0.05),
-                                tint.opacity(isHovered ? 0.85 : 0.35),
-                                Color.white.opacity(isHovered ? 0.90 : 0.45),
-                                tint.opacity(0.05)
-                            ],
-                            center: .center
-                        ),
-                        style: StrokeStyle(lineWidth: 1.5, lineCap: .round)
-                    )
-                    .frame(width: 108, height: 108)
-                    .rotationEffect(.degrees(isHovered ? 15 : -90))
-
-                // 4. Tactile Matte-Satin Actuator Core (102pt — Zero Glossy Bubble, Machined Metallic Step)
-                Circle()
-                    .fill(
-                        LinearGradient(
-                            stops: [
-                                .init(color: isHovered ? tint.opacity(0.32) : tint.opacity(0.20), location: 0.0),
-                                .init(color: Color(red: 0.058, green: 0.112, blue: 0.188), location: 0.55),
-                                .init(color: Color(red: 0.035, green: 0.068, blue: 0.120), location: 1.0)
-                            ],
-                            startPoint: .top,
-                            endPoint: .bottom
+                    .fill(tint)
+                    .overlay(
+                        Circle().fill(
+                            LinearGradient(
+                                colors: [Color.clear, Color.black.opacity(0.28)],
+                                startPoint: .top,
+                                endPoint: .bottom
+                            )
                         )
                     )
-                    .frame(width: 102, height: 102)
-                    .overlay(
-                        // Subtle top-down physical illumination (no off-center radial blob)
-                        Circle()
-                            .fill(
-                                LinearGradient(
-                                    colors: [
-                                        tint.opacity(isHovered ? 0.26 : 0.12),
-                                        Color.clear
-                                    ],
-                                    startPoint: .top,
-                                    endPoint: .center
-                                )
-                            )
-                    )
-                    .overlay(
-                        // Crisp 1px Machined Chamfer Rim
-                        Circle()
-                            .strokeBorder(
-                                LinearGradient(
-                                    stops: [
-                                        .init(color: Color.white.opacity(isHovered ? 0.55 : 0.32), location: 0.0),
-                                        .init(color: tint.opacity(isHovered ? 0.65 : 0.35), location: 0.45),
-                                        .init(color: Color.black.opacity(0.55), location: 1.0)
-                                    ],
-                                    startPoint: .top,
-                                    endPoint: .bottom
-                                ),
-                                lineWidth: 1.25
-                            )
-                    )
-                    .shadow(
-                        color: Color.black.opacity(0.55),
-                        radius: 8,
-                        x: 0,
-                        y: 4
-                    )
+                    .frame(width: 104, height: 104)
+                    .shadow(color: tint.opacity(isDisabled ? 0 : (isHovered ? 0.45 : 0.28)), radius: isHovered ? 18 : 12, x: 0, y: 6)
 
-                // 5. Crisp Instrument Icon, Typography & Monospaced Shortcut Tag
                 VStack(spacing: 5) {
                     if let icon = iconName {
-                        ZStack {
-                            Circle()
-                                .fill(tint.opacity(isHovered ? 0.24 : 0.14))
-                                .frame(width: 32, height: 32)
-                                .overlay(
-                                    Circle()
-                                        .strokeBorder(tint.opacity(isHovered ? 0.55 : 0.28), lineWidth: 1.0)
-                                )
-
-                            Image(systemName: icon)
-                                .font(.system(size: 14.5, weight: .semibold))
-                                .foregroundStyle(isHovered ? .white : tint)
-                        }
+                        Image(systemName: icon)
+                            .font(.system(size: 22, weight: .bold))
+                            .foregroundStyle(.white)
                     }
 
                     Text(label.uppercased())
-                        .font(.system(size: label.count > 9 ? 10.0 : 11.0, weight: .bold))
-                        .tracking(label.count > 9 ? 0.9 : 1.4)
+                        .font(.system(size: label.count > 9 ? 10.5 : 12, weight: .heavy, design: .rounded))
+                        .tracking(label.count > 9 ? 0.6 : 1.1)
                         .foregroundStyle(.white)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.8)
+                        .frame(maxWidth: 92)
 
                     if let hint = shortcutHint {
                         Text(hint)
-                            .font(.system(size: 9.5, weight: .semibold, design: .monospaced))
-                            .foregroundStyle(tint)
+                            .font(.system(size: 9.5, weight: .bold, design: .rounded))
+                            .foregroundStyle(.white.opacity(0.9))
                             .padding(.horizontal, 6)
                             .padding(.vertical, 1.5)
-                            .background(
-                                Capsule()
-                                    .fill(Color.black.opacity(0.38))
-                            )
-                            .overlay(
-                                Capsule()
-                                    .strokeBorder(tint.opacity(0.30), lineWidth: 0.8)
-                            )
+                            .background(Capsule().fill(Color.black.opacity(0.22)))
                     }
                 }
-                .offset(y: shortcutHint != nil ? 1 : 0)
             }
-            .scaleEffect(isHovered && !isDisabled ? 1.025 : 1.0)
+            .frame(width: 130, height: 130)
+            .contentShape(Circle())
+            .scaleEffect(isHovered && !isDisabled ? 1.04 : 1.0)
         }
         .buttonStyle(TactileOrbButtonStyle())
         .disabled(isDisabled)
-        .opacity(isDisabled ? 0.38 : 1.0)
+        .opacity(isDisabled ? 0.4 : 1.0)
         .onHover { hovering in
             withAnimation(.spring(response: 0.30, dampingFraction: 0.74)) {
                 isHovered = hovering
-                dialRotation = hovering ? 18.0 : 0.0
             }
         }
+        .accessibilityLabel(label)
     }
 }
 
@@ -1299,44 +934,34 @@ struct DeepCleanModuleView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            // Top bar
             WorkspaceTopBar(onBack: onBack) {
                 if scanner.hasScanned && !scanner.isScanning && !scanner.isCleaning {
                     Button {
                         scanner.scan()
                     } label: {
-                        HStack(spacing: 6) {
-                            Image(systemName: "arrow.clockwise")
-                                .font(.system(size: 11, weight: .medium))
-                            Text(L10n.rescanBtn)
-                                .font(.system(size: 13, weight: .medium))
-                        }
-                        .foregroundStyle(BathysPalette.textSecondary)
-                        .padding(.horizontal, 13)
-                        .padding(.vertical, 7)
-                        .background(Capsule().fill(BathysPalette.surfaceFill))
-                        .overlay(Capsule().strokeBorder(BathysPalette.hairline, lineWidth: 1))
+                        Label(L10n.rescanBtn, systemImage: "arrow.clockwise")
                     }
-                    .buttonStyle(.plain)
+                    .buttonStyle(.ds(.secondary))
+                    .keyboardShortcut("r", modifiers: .command)
                 }
             }
-            .padding(.horizontal, 52)
-            .padding(.top, 30)
+            .padding(.horizontal, DS.Space.gutter)
+            .padding(.top, DS.Space.top)
 
             ZStack {
                 if scanner.isScanning {
                     scanningProgressBody
-                        .transition(.opacity.combined(with: .scale(scale: 0.98)))
+                        .transition(.opacity)
                 } else if scanner.hasScanned {
                     scannedResultsBody
-                        .transition(.opacity.combined(with: .scale(scale: 0.98)))
+                        .transition(.opacity)
                 } else {
                     preScanHeroBody
-                        .transition(.opacity.combined(with: .scale(scale: 0.98)))
+                        .transition(.opacity)
                 }
             }
-            .animation(.spring(response: 0.34, dampingFraction: 0.84), value: scanner.isScanning)
-            .animation(.spring(response: 0.34, dampingFraction: 0.84), value: scanner.hasScanned)
+            .animation(DS.Motion.standard, value: scanner.isScanning)
+            .animation(DS.Motion.standard, value: scanner.hasScanned)
         }
         .sheet(isPresented: $scanner.showCleanConfirmation) {
             let trashCat = scanner.categories.first(where: { $0.id == "trash" })
@@ -1365,78 +990,100 @@ struct DeepCleanModuleView: View {
                 onCancel: { scanner.showCleanConfirmation = false },
                 onConfirm: { scanner.cleanSelectedItems() }
             )
-            .presentationBackground(BathysPalette.workspaceBottom)
+            .presentationBackground(DS.Ink.groundDeep)
         }
     }
 
-    // 1A. Pre-Scan State (Real Interactive Inspection Targets — Zero AI Pill Badges or Fake Feature Lists)
+    // MARK: Intestazione condivisa
+
+    private var protectedAppsBadge: some View {
+        DSBadge(
+            text: L10n.lang == .italian
+                ? "\(scanner.protectedRunningAppsCount) app aperte protette"
+                : "\(scanner.protectedRunningAppsCount) open apps protected",
+            icon: "checkmark.shield.fill",
+            tint: BathysPalette.emerald
+        )
+        .help(L10n.lang == .italian
+              ? "I file delle app aperte non vengono mai toccati"
+              : "Files of open apps are never touched")
+    }
+
+    private var selectAllButton: some View {
+        let allSelected = scanner.categories.allSatisfy { $0.isSelected }
+        return Button {
+            let target = !allSelected
+            withAnimation(DS.Motion.quick) {
+                for i in scanner.categories.indices {
+                    scanner.categories[i].isSelected = target
+                }
+            }
+        } label: {
+            Text(allSelected ? L10n.deselectAll : L10n.selectAll)
+        }
+        .buttonStyle(.ds(.quiet, size: .small))
+    }
+
+    /// Elenco scorrevole con dissolvenza ai bordi (nessuna riga tagliata di netto)
+    private func categoryList(hasScanned: Bool) -> some View {
+        ScrollView(.vertical, showsIndicators: false) {
+            VStack(spacing: DS.Space.xs) {
+                ForEach($scanner.categories) { $cat in
+                    if !hasScanned || cat.bytes > 0 || scanner.categories.allSatisfy({ $0.bytes == 0 }) {
+                        SpaciousCategoryCard(category: $cat, hasScanned: hasScanned)
+                    }
+                }
+            }
+            .padding(.horizontal, DS.Space.gutter)
+            .padding(.top, DS.Space.xs)
+            .padding(.bottom, DS.Space.xl)
+        }
+        .mask(
+            VStack(spacing: 0) {
+                LinearGradient(colors: [.clear, .black], startPoint: .top, endPoint: .bottom).frame(height: DS.Space.xs)
+                Rectangle()
+                LinearGradient(colors: [.black, .clear], startPoint: .top, endPoint: .bottom).frame(height: DS.Space.xxl)
+            }
+        )
+    }
+
+    private func actionArea<Content: View>(@ViewBuilder _ content: () -> Content) -> some View {
+        HStack {
+            Spacer()
+            content()
+            Spacer()
+        }
+        .padding(.top, DS.Space.xs)
+        .padding(.bottom, DS.Space.xl)
+    }
+
+    // 1A. Prima della scansione
     private var preScanHeroBody: some View {
         VStack(alignment: .leading, spacing: 0) {
-            HStack(alignment: .lastTextBaseline) {
-                VStack(alignment: .leading, spacing: 6) {
-                    HStack(alignment: .firstTextBaseline, spacing: 12) {
-                        Text(L10n.lang == .italian ? "Scansione Profonda" : "Deep Clean")
-                            .font(.system(size: 34, weight: .light))
-                            .tracking(-0.5)
-                            .foregroundStyle(BathysPalette.textPrimary)
-
-                        HStack(spacing: 5) {
-                            Image(systemName: "checkmark.shield.fill")
-                                .font(.system(size: 10, weight: .semibold))
-                                .foregroundStyle(BathysPalette.emerald)
-                            Text(L10n.lang == .italian
-                                 ? "\(scanner.protectedRunningAppsCount) app aperte protette"
-                                 : "\(scanner.protectedRunningAppsCount) open apps protected")
-                                .font(.system(size: 11, weight: .medium))
-                                .foregroundStyle(BathysPalette.emerald)
-                        }
-                        .padding(.horizontal, 9)
-                        .padding(.vertical, 3.5)
-                        .background(Capsule().fill(BathysPalette.emerald.opacity(0.11)))
-                        .overlay(Capsule().strokeBorder(BathysPalette.emerald.opacity(0.28), lineWidth: 1))
-                    }
-
+            HStack(alignment: .bottom, spacing: DS.Space.m) {
+                VStack(alignment: .leading, spacing: DS.Space.xs) {
+                    Text(L10n.lang == .italian ? "Scansione Profonda" : "Deep Clean")
+                        .font(DS.Font.display)
+                        .foregroundStyle(DS.Ink.primary)
                     Text(L10n.lang == .italian
-                         ? "Seleziona le aree di sistema da ispezionare. Nessun file viene rimosso senza conferma."
-                         : "Select the system areas to inspect. No files are removed without confirmation.")
-                        .font(.system(size: 13.5, weight: .regular))
-                        .foregroundStyle(BathysPalette.textSecondary)
+                         ? "Scegli le aree da analizzare. Nulla viene rimosso senza la tua conferma."
+                         : "Choose the areas to analyse. Nothing is removed without your confirmation.")
+                        .font(DS.Font.body)
+                        .foregroundStyle(DS.Ink.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                    protectedAppsBadge
+                        .padding(.top, DS.Space.xxs)
                 }
-
-                Spacer()
-
-                let allSelected = scanner.categories.allSatisfy { $0.isSelected }
-                Button {
-                    let target = !allSelected
-                    withAnimation(.spring(response: 0.24, dampingFraction: 0.75)) {
-                        for i in scanner.categories.indices {
-                            scanner.categories[i].isSelected = target
-                        }
-                    }
-                } label: {
-                    Text(allSelected ? L10n.deselectAll : L10n.selectAll)
-                        .font(.system(size: 12.5, weight: .medium))
-                        .foregroundStyle(BathysPalette.sky)
-                }
-                .buttonStyle(.plain)
+                Spacer(minLength: DS.Space.m)
+                selectAllButton
             }
-            .padding(.horizontal, 52)
-            .padding(.top, 18)
-            .padding(.bottom, 14)
+            .padding(.horizontal, DS.Space.gutter)
+            .padding(.top, DS.Space.xl)
+            .padding(.bottom, DS.Space.m)
 
-            ScrollView(.vertical, showsIndicators: false) {
-                VStack(spacing: 7) {
-                    ForEach($scanner.categories) { $cat in
-                        SpaciousCategoryCard(category: $cat, hasScanned: false)
-                    }
-                }
-                .padding(.horizontal, 52)
-                .padding(.vertical, 2)
-            }
+            categoryList(hasScanned: false)
 
-            // Bottom Machined Scan Instrument Button
-            HStack {
-                Spacer()
+            actionArea {
                 CircularActionOrbButton(
                     label: L10n.scanBtn,
                     iconName: "waveform.path.ecg",
@@ -1445,156 +1092,89 @@ struct DeepCleanModuleView: View {
                 ) {
                     scanner.scan()
                 }
-                Spacer()
+                .keyboardShortcut(.defaultAction)
             }
-            .padding(.top, 12)
-            .padding(.bottom, 22)
         }
     }
 
-    // 1B. Calm Scanning State
+    // 1B. Scansione in corso
     private var scanningProgressBody: some View {
-        VStack(alignment: .leading, spacing: 0) {
+        VStack(alignment: .leading, spacing: DS.Space.m) {
             Spacer()
 
-            VStack(alignment: .leading, spacing: 12) {
-                HStack(spacing: 8) {
-                    Circle()
-                        .fill(BathysPalette.sky)
-                        .frame(width: 6, height: 6)
-                    Text(L10n.scanningInProgress)
-                        .font(.system(size: 13, weight: .semibold))
-                        .tracking(0.6)
-                        .textCase(.uppercase)
-                        .foregroundStyle(BathysPalette.sky)
+            DSBadge(text: L10n.scanningInProgress, icon: "waveform.path.ecg", tint: BathysPalette.sky)
+
+            Text(ByteCountFormatter.string(fromByteCount: scanner.selectedBytes, countStyle: .file))
+                .font(DS.Font.bigNumber)
+                .contentTransition(.numericText())
+                .animation(DS.Motion.standard, value: scanner.selectedBytes)
+                .foregroundStyle(DS.Ink.primary)
+
+            VStack(alignment: .leading, spacing: DS.Space.xs) {
+                HStack {
+                    Text(L10n.lang == .italian ? "Profondità" : "Depth")
+                        .font(DS.Font.caption)
+                        .foregroundStyle(DS.Ink.tertiary)
+                    Spacer()
+                    Text("\(Int(scanner.depth * 100))%")
+                        .font(DS.Font.captionEmphasis.monospacedDigit())
+                        .foregroundStyle(DS.Ink.secondary)
                 }
-
-                Text(ByteCountFormatter.string(fromByteCount: scanner.selectedBytes, countStyle: .file))
-                    .font(.system(size: 56, weight: .light))
-                    .monospacedDigit()
-                    .contentTransition(.numericText())
-                    .animation(.spring(response: 0.28, dampingFraction: 0.82), value: scanner.selectedBytes)
-                    .foregroundStyle(BathysPalette.textPrimary)
-
-                Text(scanner.currentPath.isEmpty ? "Controllo cartelle di sistema…" : scanner.currentPath)
-                    .font(.system(size: 12.5, weight: .regular, design: .monospaced))
-                    .foregroundStyle(BathysPalette.textTertiary)
-                    .lineLimit(1)
-                    .truncationMode(.middle)
-                    .frame(maxWidth: 480, alignment: .leading)
+                DSProgressBar(value: scanner.depth, tint: BathysPalette.sky, height: 6)
             }
-            .padding(.bottom, 28)
+            .frame(maxWidth: 420)
 
-            GeometryReader { geo in
-                ZStack(alignment: .leading) {
-                    Capsule()
-                        .fill(Color.white.opacity(0.07))
-                        .frame(height: 4)
-
-                    Capsule()
-                        .fill(
-                            LinearGradient(
-                                colors: [BathysPalette.sky, BathysPalette.teal],
-                                startPoint: .leading,
-                                endPoint: .trailing
-                            )
-                        )
-                        .frame(width: max(16, geo.size.width * CGFloat(scanner.depth)), height: 4)
-                        .animation(.easeOut(duration: 0.22), value: scanner.depth)
-                }
-            }
-            .frame(height: 4)
-            .frame(maxWidth: 440)
+            Text(scanner.currentPath.isEmpty
+                 ? (L10n.lang == .italian ? "Controllo delle cartelle di sistema…" : "Checking system folders…")
+                 : scanner.currentPath.replacingOccurrences(of: FileManager.default.homeDirectoryForCurrentUser.path, with: "~"))
+                .font(DS.Font.caption)
+                .foregroundStyle(DS.Ink.tertiary)
+                .lineLimit(1)
+                .truncationMode(.middle)
+                .frame(maxWidth: 420, alignment: .leading)
 
             Spacer()
         }
-        .padding(.horizontal, 52)
+        .padding(.horizontal, DS.Space.gutter)
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
-    // 1C. Clean, Breathable Post-Scan Results
+    // 1C. Risultati
     private var scannedResultsBody: some View {
         VStack(alignment: .leading, spacing: 0) {
-            // Header Summary
-            HStack(alignment: .lastTextBaseline) {
-                VStack(alignment: .leading, spacing: 4) {
-                    HStack(spacing: 10) {
+            HStack(alignment: .bottom, spacing: DS.Space.m) {
+                VStack(alignment: .leading, spacing: DS.Space.xs) {
+                    HStack(spacing: DS.Space.xs) {
                         if scanner.lastCleanedBytes > 0 {
-                            Text("\(L10n.cleanupComplete) • \(ByteCountFormatter.string(fromByteCount: scanner.lastCleanedBytes, countStyle: .file))")
-                                .font(.system(size: 13, weight: .medium))
-                                .foregroundStyle(BathysPalette.emerald)
-                        } else {
-                            Text(L10n.lang == .italian ? "Risultati della scansione" : "Scan Results")
-                                .font(.system(size: 13, weight: .medium))
-                                .foregroundStyle(BathysPalette.textSecondary)
+                            DSBadge(
+                                text: "\(L10n.cleanupComplete) \(ByteCountFormatter.string(fromByteCount: scanner.lastCleanedBytes, countStyle: .file))",
+                                icon: "checkmark",
+                                tint: BathysPalette.emerald
+                            )
                         }
-
-                        HStack(spacing: 4) {
-                            Image(systemName: "checkmark.shield.fill")
-                                .font(.system(size: 9.5, weight: .semibold))
-                                .foregroundStyle(BathysPalette.emerald)
-                            Text(L10n.lang == .italian
-                                 ? "\(scanner.protectedRunningAppsCount) app in uso protette"
-                                 : "\(scanner.protectedRunningAppsCount) active apps protected")
-                                .font(.system(size: 11, weight: .medium))
-                                .foregroundStyle(BathysPalette.emerald)
-                        }
-                        .padding(.horizontal, 8)
-                        .padding(.vertical, 2.5)
-                        .background(Capsule().fill(BathysPalette.emerald.opacity(0.11)))
-                        .overlay(Capsule().strokeBorder(BathysPalette.emerald.opacity(0.28), lineWidth: 1))
+                        protectedAppsBadge
                     }
-
-                    HStack(alignment: .firstTextBaseline, spacing: 10) {
+                    HStack(alignment: .firstTextBaseline, spacing: DS.Space.s) {
                         Text(ByteCountFormatter.string(fromByteCount: scanner.selectedBytes, countStyle: .file))
-                            .font(.system(size: 38, weight: .light))
-                            .monospacedDigit()
+                            .font(DS.Font.bigNumber)
                             .contentTransition(.numericText())
-                            .animation(.spring(response: 0.28, dampingFraction: 0.82), value: scanner.selectedBytes)
-                            .foregroundStyle(BathysPalette.textPrimary)
-
+                            .animation(DS.Motion.standard, value: scanner.selectedBytes)
+                            .foregroundStyle(DS.Ink.primary)
                         Text(L10n.readyForCleanup)
-                            .font(.system(size: 15, weight: .regular))
-                            .foregroundStyle(BathysPalette.textSecondary)
+                            .font(DS.Font.body)
+                            .foregroundStyle(DS.Ink.secondary)
                     }
                 }
-
-                Spacer()
-
-                let allSelected = scanner.categories.allSatisfy { $0.isSelected }
-                Button {
-                    let target = !allSelected
-                    withAnimation(.spring(response: 0.24, dampingFraction: 0.75)) {
-                        for i in scanner.categories.indices {
-                            scanner.categories[i].isSelected = target
-                        }
-                    }
-                } label: {
-                    Text(allSelected ? L10n.deselectAll : L10n.selectAll)
-                        .font(.system(size: 13, weight: .medium))
-                        .foregroundStyle(BathysPalette.sky)
-                }
-                .buttonStyle(.plain)
+                Spacer(minLength: DS.Space.m)
+                selectAllButton
             }
-            .padding(.horizontal, 52)
-            .padding(.top, 18)
-            .padding(.bottom, 14)
+            .padding(.horizontal, DS.Space.gutter)
+            .padding(.top, DS.Space.xl)
+            .padding(.bottom, DS.Space.m)
 
-            // Clean Category List (Fits non-zero categories cleanly with breathing room)
-            ScrollView(.vertical, showsIndicators: false) {
-                VStack(spacing: 7) {
-                    ForEach($scanner.categories) { $cat in
-                        if cat.bytes > 0 || scanner.categories.allSatisfy({ $0.bytes == 0 }) {
-                            SpaciousCategoryCard(category: $cat, hasScanned: true)
-                        }
-                    }
-                }
-                .padding(.horizontal, 52)
-                .padding(.vertical, 2)
-            }
+            categoryList(hasScanned: true)
 
-            // Bottom Action Bar with Breathing Room
-            HStack {
-                Spacer()
+            actionArea {
                 CircularActionOrbButton(
                     label: L10n.cleanBtn,
                     iconName: "sparkles",
@@ -1608,10 +1188,7 @@ struct DeepCleanModuleView: View {
                         scanner.cleanSelectedItems()
                     }
                 }
-                Spacer()
             }
-            .padding(.top, 12)
-            .padding(.bottom, 22)
         }
     }
 }
@@ -1623,167 +1200,160 @@ struct SpaciousCategoryCard: View {
     var hasScanned: Bool = true
     @State private var hover = false
 
+    private var canExpand: Bool { hasScanned && !category.topItems.isEmpty }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            HStack(spacing: 14) {
-                BathysRoundCheckButton(
-                    isSelected: $category.isSelected,
-                    tint: accentColor,
-                    size: 19
-                )
+            HStack(spacing: DS.Space.s) {
+                BathysRoundCheckButton(isSelected: $category.isSelected, tint: accentColor)
 
-                ZStack {
-                    Circle()
-                        .fill(accentColor.opacity(0.14))
-                        .frame(width: 32, height: 32)
-                        .overlay(
-                            Circle()
-                                .strokeBorder(accentColor.opacity(0.24), lineWidth: 1)
-                        )
+                Image(systemName: category.symbol)
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(accentColor)
+                    .frame(width: 32, height: 32)
+                    .background(
+                        RoundedRectangle(cornerRadius: 9, style: .continuous)
+                            .fill(accentColor.opacity(0.14))
+                    )
 
-                    Image(systemName: category.symbol)
-                        .font(.system(size: 13, weight: .medium))
-                        .foregroundStyle(accentColor)
-                }
-
-                VStack(alignment: .leading, spacing: 1.5) {
-                    Text(category.title)
-                        .font(.system(size: 13.5, weight: .medium))
-                        .foregroundStyle(category.isSelected ? BathysPalette.textPrimary : BathysPalette.textSecondary)
-
-                    Text(category.subtitle)
-                        .font(.system(size: 11.5, weight: .regular))
-                        .foregroundStyle(BathysPalette.textTertiary)
-                        .lineLimit(1)
-                }
-
-                Spacer(minLength: 12)
-
-                if !hasScanned {
-                    Text(category.isSelected
-                         ? (L10n.lang == .italian ? "Incluso" : "Included")
-                         : (L10n.lang == .italian ? "Escluso" : "Skipped"))
-                        .font(.system(size: 11.5, weight: .medium))
-                        .foregroundStyle(category.isSelected ? BathysPalette.textSecondary : BathysPalette.textTertiary)
-                        .padding(.horizontal, 9)
-                        .padding(.vertical, 3)
-                        .background(Capsule().fill(Color.white.opacity(0.04)))
-                        .overlay(Capsule().strokeBorder(BathysPalette.hairline, lineWidth: 1))
-                } else if category.bytes > 0 {
-                    Text(ByteCountFormatter.string(fromByteCount: category.selectedBytes, countStyle: .file))
-                        .font(.system(size: 13.5, weight: .medium))
-                        .monospacedDigit()
-                        .contentTransition(.numericText())
-                        .foregroundStyle(category.isSelected ? BathysPalette.textPrimary : BathysPalette.textTertiary)
-                } else {
-                    Text("Zero KB")
-                        .font(.system(size: 12.5, weight: .regular))
-                        .foregroundStyle(BathysPalette.textTertiary)
-                }
-
-                if hasScanned && !category.topItems.isEmpty {
-                    BathysRoundIconButton(
-                        icon: category.isExpanded ? "chevron.down" : "chevron.right",
-                        size: 24,
-                        iconSize: 10,
-                        tint: accentColor
-                    ) {
-                        withAnimation(.spring(response: 0.26, dampingFraction: 0.80)) {
-                            category.isExpanded.toggle()
+                VStack(alignment: .leading, spacing: 3) {
+                    HStack(spacing: DS.Space.xs) {
+                        Text(category.title)
+                            .font(DS.Font.headline)
+                            .foregroundStyle(category.isSelected ? DS.Ink.primary : DS.Ink.secondary)
+                            .lineLimit(1)
+                        if category.id == "trash" {
+                            DSBadge(text: L10n.lang == .italian ? "Definitivo" : "Permanent", tint: BathysPalette.coral)
+                        }
+                        if category.state == .denied {
+                            DSBadge(text: L10n.lang == .italian ? "Serve accesso" : "Needs access", icon: "lock.fill", tint: BathysPalette.amber)
                         }
                     }
+                    Text(category.subtitle)
+                        .font(DS.Font.caption)
+                        .foregroundStyle(DS.Ink.tertiary)
+                        .lineLimit(2)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                .layoutPriority(1)
+
+                Spacer(minLength: DS.Space.s)
+
+                if hasScanned {
+                    Text(category.bytes > 0
+                         ? ByteCountFormatter.string(fromByteCount: category.selectedBytes, countStyle: .file)
+                         : (L10n.lang == .italian ? "Pulito" : "Clean"))
+                        .font(DS.Font.value)
+                        .contentTransition(.numericText())
+                        .foregroundStyle(category.bytes > 0 && category.isSelected ? DS.Ink.primary : DS.Ink.tertiary)
+                        .fixedSize()
+                }
+
+                if canExpand {
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundStyle(hover ? DS.Ink.primary : DS.Ink.tertiary)
+                        .rotationEffect(.degrees(category.isExpanded ? 90 : 0))
+                        .frame(width: 20)
                 }
             }
-            .padding(.horizontal, 14)
-            .padding(.vertical, 9)
+            .padding(.leading, DS.Space.xs)
+            .padding(.trailing, DS.Space.m)
+            .padding(.vertical, DS.Space.s)
             .contentShape(Rectangle())
             .onTapGesture {
-                if hasScanned && !category.topItems.isEmpty {
-                    withAnimation(.spring(response: 0.26, dampingFraction: 0.80)) {
+                withAnimation(DS.Motion.standard) {
+                    if canExpand {
                         category.isExpanded.toggle()
-                    }
-                } else if !hasScanned {
-                    withAnimation(.spring(response: 0.24, dampingFraction: 0.72)) {
+                    } else if !hasScanned {
                         category.isSelected.toggle()
                     }
                 }
             }
 
-            if hasScanned && category.isExpanded && !category.topItems.isEmpty {
-                VStack(spacing: 4) {
+            if canExpand && category.isExpanded {
+                VStack(spacing: 0) {
                     ForEach($category.topItems) { $item in
-                        HStack(spacing: 10) {
-                            BathysRoundCheckButton(
-                                isSelected: $item.isSelected,
-                                tint: accentColor,
-                                size: 16
-                            )
-
-                            VStack(alignment: .leading, spacing: 1) {
-                                Text(item.name)
-                                    .font(.system(size: 12.5, weight: .regular))
-                                    .foregroundStyle(item.isSelected ? BathysPalette.textSecondary : BathysPalette.textTertiary)
-                                    .lineLimit(1)
-
-                                if let safetyNote = item.safetyNote {
-                                    Text(safetyNote)
-                                        .font(.system(size: 10.5, weight: .regular))
-                                        .foregroundStyle(BathysPalette.textTertiary)
-                                        .lineLimit(1)
-                                }
-                            }
-
-                            Spacer()
-
-                            Text(item.formattedSize)
-                                .font(.system(size: 12.5, weight: .regular))
-                                .monospacedDigit()
-                                .foregroundStyle(BathysPalette.textSecondary)
-
-                            BathysRoundIconButton(
-                                icon: "magnifyingglass",
-                                size: 24,
-                                iconSize: 10.5,
-                                tint: accentColor,
-                                helpText: L10n.lang == .italian ? "Mostra nel Finder" : "Reveal in Finder"
-                            ) {
-                                NSWorkspace.shared.selectFile(item.path, inFileViewerRootedAtPath: "")
-                            }
-                        }
-                        .padding(.horizontal, 12)
-                        .padding(.vertical, 5)
+                        Rectangle().fill(DS.Ink.hairline).frame(height: 1)
+                        CategoryItemRow(item: $item, tint: accentColor)
                     }
                 }
-                .padding(.leading, 40)
-                .padding(.trailing, 14)
-                .padding(.bottom, 8)
+                .padding(.leading, 52)
+                .padding(.trailing, DS.Space.xs)
+                .padding(.bottom, DS.Space.xs)
+                .transition(.opacity)
             }
         }
-        .background(
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .fill(hover ? BathysPalette.surfaceFillHover : BathysPalette.surfaceFill)
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .strokeBorder(hover ? BathysPalette.hairlineHover : BathysPalette.hairline, lineWidth: 1)
-        )
+        .dsSurface(radius: DS.Radius.row, isHovered: hover)
         .onHover { hovering in
-            withAnimation(.easeOut(duration: 0.16)) {
-                hover = hovering
-            }
+            withAnimation(DS.Motion.quick) { hover = hovering }
         }
     }
 
     private var accentColor: Color {
         switch category.id {
         case "caches": return BathysPalette.sky
+        case "appcaches": return BathysPalette.teal
         case "temp": return BathysPalette.amber
-        case "dev": return BathysPalette.teal
-        case "logs": return BathysPalette.steel
+        case "dev": return BathysPalette.steel
+        case "logs": return Color(red: 0.62, green: 0.70, blue: 0.80)
         case "xcode": return BathysPalette.emerald
         case "orphans": return BathysPalette.yellow
         case "trash": return BathysPalette.coral
         default: return BathysPalette.sky
+        }
+    }
+}
+
+/// Riga di dettaglio dentro una categoria espansa
+private struct CategoryItemRow: View {
+    @Binding var item: DiscoveredItem
+    let tint: Color
+    @State private var isHovered = false
+
+    var body: some View {
+        HStack(spacing: DS.Space.xs) {
+            BathysRoundCheckButton(isSelected: $item.isSelected, tint: tint, size: 16)
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text(item.name)
+                    .font(DS.Font.bodyEmphasis)
+                    .foregroundStyle(item.isSelected ? DS.Ink.primary : DS.Ink.secondary)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                if let note = item.safetyNote {
+                    Text(note)
+                        .font(DS.Font.caption)
+                        .foregroundStyle(DS.Ink.tertiary)
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                        .help(note)
+                }
+            }
+
+            Spacer(minLength: DS.Space.s)
+
+            BathysRoundIconButton(
+                icon: "folder",
+                size: 26,
+                iconSize: 11,
+                tint: tint,
+                helpText: L10n.lang == .italian ? "Mostra nel Finder" : "Reveal in Finder"
+            ) {
+                NSWorkspace.shared.selectFile(item.path, inFileViewerRootedAtPath: "")
+            }
+            .opacity(isHovered ? 1 : 0)
+
+            Text(item.formattedSize)
+                .font(DS.Font.value)
+                .foregroundStyle(item.isSelected ? DS.Ink.secondary : DS.Ink.tertiary)
+                .frame(minWidth: 64, alignment: .trailing)
+        }
+        .padding(.vertical, DS.Space.xs)
+        .padding(.trailing, DS.Space.xs)
+        .contentShape(Rectangle())
+        .onHover { hovering in
+            withAnimation(DS.Motion.quick) { isHovered = hovering }
         }
     }
 }
@@ -1924,11 +1494,8 @@ struct DynamicDivingSubmarine: View {
                     .position(x: 175 * 0.5 + 75, y: 140 * 0.5 + 12)
                     .opacity(bubblesAlpha)
 
-                BathysAsset.image(named: "submarine_yellow")
-                    .resizable()
-                    .aspectRatio(contentMode: .fit)
+                BathysArt(name: "submarine_yellow")
                     .frame(width: 175, height: 140)
-                    .shadow(color: Color.black.opacity(0.35), radius: 12, y: 8)
             }
             .frame(width: 175, height: 140)
             .rotationEffect(.degrees(currentPitch))
@@ -2236,9 +1803,7 @@ struct DistantReefLayer: View {
             Spacer()
 
             HStack(alignment: .bottom, spacing: 25) {
-                BathysAsset.image(named: "algae_ribbon_center")
-                    .resizable()
-                    .aspectRatio(contentMode: .fit)
+                BathysArt(name: "algae_ribbon_center")
                     .frame(width: 30, height: 70)
                     .colorMultiply(Color(red: 0.05, green: 0.15, blue: 0.25))
                     .opacity(0.32)
@@ -2246,9 +1811,7 @@ struct DistantReefLayer: View {
 
                 Spacer()
 
-                BathysAsset.image(named: "algae_green_tall")
-                    .resizable()
-                    .aspectRatio(contentMode: .fit)
+                BathysArt(name: "algae_green_tall")
                     .frame(width: 34, height: 80)
                     .colorMultiply(Color(red: 0.05, green: 0.15, blue: 0.25))
                     .opacity(0.28)
@@ -2256,9 +1819,7 @@ struct DistantReefLayer: View {
 
                 Spacer()
 
-                BathysAsset.image(named: "coral_orange_branch")
-                    .resizable()
-                    .aspectRatio(contentMode: .fit)
+                BathysArt(name: "coral_orange_branch")
                     .frame(width: 40, height: 40)
                     .colorMultiply(Color(red: 0.04, green: 0.12, blue: 0.22))
                     .opacity(0.26)
@@ -2286,9 +1847,7 @@ struct SeafloorReefLayer: View {
                 ZStack(alignment: .bottom) {
                     // Gruppo profondo 1: Centro-Sinistra (Ventaglio viola profondo + alga verde alta)
                     HStack(alignment: .bottom, spacing: 6) {
-                        BathysAsset.image(named: "coral_purple_fan")
-                            .resizable()
-                            .aspectRatio(contentMode: .fit)
+                        BathysArt(name: "coral_purple_fan")
                             .frame(width: 48, height: 46)
                             .colorMultiply(Color(red: 0.35, green: 0.52, blue: 0.78))
                             .opacity(0.82)
@@ -2316,9 +1875,7 @@ struct SeafloorReefLayer: View {
                 .zIndex(0)
 
                 // MARK: - LAYER 1: Z-MIDGROUND DUNES (Fondale sabbioso oceanico 3D — Solo sabbia superficiale)
-                BathysAsset.image(named: "seafloor_sand_bed")
-                    .resizable()
-                    .aspectRatio(contentMode: .fill)
+                BathysArt(name: "seafloor_sand_bed")
                     .frame(width: width, height: 98)
                     .clipped()
                     .zIndex(1)
@@ -2330,9 +1887,7 @@ struct SeafloorReefLayer: View {
                 }
 
                 // MARK: - LAYER 1.8: Z-FOREGROUND SAND CREST (Nasconde parzialmente la base dei rifiuti facendoli apparire infilati nella sabbia)
-                BathysAsset.image(named: "seafloor_sand_foreground")
-                    .resizable()
-                    .aspectRatio(contentMode: .fill)
+                BathysArt(name: "seafloor_sand_foreground")
                     .frame(width: width, height: 98)
                     .clipped()
                     .allowsHitTesting(false)
@@ -2341,11 +1896,8 @@ struct SeafloorReefLayer: View {
                 // MARK: - LAYER 2: Z-ORGANIC REEF ACCENTS (Senza sovrapposizioni sgraziate con i rifiuti)
                 ZStack(alignment: .bottom) {
                     // Unico anemone arancio adagiato nell'avvallamento centrale tra gomma e cassa (x: 0.505)
-                    BathysAsset.image(named: "coral_orange_anemone")
-                        .resizable()
-                        .aspectRatio(contentMode: .fit)
+                    BathysArt(name: "coral_orange_anemone")
                         .frame(width: 30, height: 28)
-                        .shadow(color: Color(red: 0.35, green: 0.24, blue: 0.12).opacity(0.35), radius: 3, x: 0, y: 2)
                         .position(x: width * 0.505, y: 66)
                 }
                 .frame(width: width, height: 98)
@@ -2356,14 +1908,11 @@ struct SeafloorReefLayer: View {
                     // Ancora di primo piano SINISTRA (Coral Red Fingers + Kelp, senza toccare il bidone)
                     ZStack(alignment: .bottomLeading) {
                         SwayingPlant(name: "algae_green_tall", width: 44, height: 104, swayAngle: sin(time * 1.25) * 2.2)
-                            .offset(x: -8, y: 6)
+                            .offset(x: 2, y: 0)
 
-                        BathysAsset.image(named: "coral_red_fingers")
-                            .resizable()
-                            .aspectRatio(contentMode: .fit)
+                        BathysArt(name: "coral_red_fingers")
                             .frame(width: 52, height: 52)
-                            .shadow(color: Color(red: 0.35, green: 0.22, blue: 0.10).opacity(0.35), radius: 5, x: 1, y: 3)
-                            .offset(x: 0, y: 8)
+                            .offset(x: 6, y: -6)
                     }
 
                     Spacer()
@@ -2371,14 +1920,11 @@ struct SeafloorReefLayer: View {
                     // Ancora di primo piano DESTRA (Coral Orange Branch + Blue Algae, con respiro dal bordo)
                     ZStack(alignment: .bottomTrailing) {
                         SwayingPlant(name: "algae_blue_wavy", width: 38, height: 94, swayAngle: sin(time * 1.2 + 1.1) * 2.2)
-                            .offset(x: -14, y: 6)
+                            .offset(x: -16, y: 0)
 
-                        BathysAsset.image(named: "coral_orange_branch")
-                            .resizable()
-                            .aspectRatio(contentMode: .fit)
+                        BathysArt(name: "coral_orange_branch")
                             .frame(width: 50, height: 48)
-                            .shadow(color: Color(red: 0.35, green: 0.22, blue: 0.10).opacity(0.35), radius: 5, x: -1, y: 3)
-                            .offset(x: 0, y: 8)
+                            .offset(x: -4, y: -6)
                     }
                 }
                 .padding(.leading, 6)
@@ -2496,12 +2042,9 @@ struct FloatingPlasticDebrisLayer: View {
                 let currOpacity = max(0.0, 1.0 - p * 1.15)
                 let currRot = idleRock + p * 240.0
 
-                BathysAsset.image(named: item.assetName)
-                    .resizable()
-                    .aspectRatio(contentMode: .fit)
+                BathysArt(name: item.assetName)
                     .frame(width: item.width, height: item.height)
                     .colorMultiply(Color(red: 0.86, green: 0.94, blue: 1.0))
-                    .shadow(color: Color(red: 0.02, green: 0.08, blue: 0.16).opacity(0.35 * (1.0 - p)), radius: 4, x: 0, y: 2)
                     .rotationEffect(.degrees(currRot))
                     .scaleEffect(currScale)
                     .opacity(currOpacity)
@@ -2616,12 +2159,9 @@ struct SeafloorDebrisLayer: View {
                 let idleSway = sin(time * 0.8 + Double(item.id)) * 0.8
                 let currRot = item.rotationDegrees + idleSway + p * 220.0
 
-                BathysAsset.image(named: item.assetName)
-                    .resizable()
-                    .aspectRatio(contentMode: .fit)
+                BathysArt(name: item.assetName)
                     .frame(width: item.width, height: item.height)
                     .colorMultiply(Color(red: 0.88, green: 0.94, blue: 0.98))
-                    .shadow(color: Color(red: 0.28, green: 0.16, blue: 0.06).opacity(0.42 * (1.0 - p)), radius: 3, x: 0, y: 2)
                     .rotationEffect(.degrees(currRot))
                     .scaleEffect(currScale)
                     .opacity(currOpacity)
@@ -2680,12 +2220,9 @@ struct SwayingPlant: View {
     let swayAngle: Double
 
     var body: some View {
-        BathysAsset.image(named: name)
-            .resizable()
-            .aspectRatio(contentMode: .fit)
+        BathysArt(name: name)
             .frame(width: width, height: height)
             .rotationEffect(.degrees(swayAngle), anchor: .bottom)
-            .shadow(color: Color.black.opacity(0.35), radius: 4, y: 3)
     }
 }
 
@@ -2804,16 +2341,12 @@ struct SwimmingFishInstance: View {
         let posX: CGFloat = swimRight ? CGFloat(-40.0 + progress) : CGFloat(containerWidth + 40.0 - progress)
         let tailWag = sin(time * 5.5 + swimOffset) * 2.5
 
-        BathysAsset.image(named: assetName)
-            .resizable()
-            .aspectRatio(contentMode: .fit)
+        BathysArt(name: assetName)
             .frame(width: width, height: height)
             .scaleEffect(x: swimRight ? 1 : -1, y: 1)
             .rotationEffect(.degrees(swimRight ? tailWag : -tailWag))
             .opacity(opacity)
-            .blur(radius: blur)
             .position(x: posX, y: swimY)
-            .shadow(color: Color.black.opacity(opacity * 0.35), radius: 4, y: 3)
     }
 }
 
@@ -2884,179 +2417,119 @@ struct PrivacyOnboardingSheet: View {
     @Bindable var permissionManager: PermissionManager
     let onDismiss: () -> Void
 
+    private var it: Bool { L10n.lang == .italian }
+
     var body: some View {
-        ZStack {
-            BathysPalette.workspaceBottom
-                .ignoresSafeArea()
-
-            VStack(alignment: .leading, spacing: 22) {
-                // Header
-                HStack(spacing: 14) {
-                    ZStack {
-                        RoundedRectangle(cornerRadius: 12, style: .continuous)
-                            .fill(BathysPalette.emerald.opacity(0.16))
-                            .frame(width: 44, height: 44)
-                            .overlay(
-                                RoundedRectangle(cornerRadius: 12, style: .continuous)
-                                    .strokeBorder(BathysPalette.emerald.opacity(0.3), lineWidth: 1)
-                            )
-
-                        Image(systemName: "checkmark.shield.fill")
-                            .font(.system(size: 20))
-                            .foregroundStyle(BathysPalette.emerald)
-                    }
-
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text("Trasparenza, Privacy & Sicurezza")
-                            .font(.system(size: 20, weight: .semibold))
-                            .foregroundStyle(.white)
-
-                        Text("Come Bathys tutela rigorosamente i tuoi dati e il tuo Mac.")
-                            .font(.system(size: 13, weight: .regular))
-                            .foregroundStyle(BathysPalette.textSecondary)
-                    }
+        VStack(alignment: .leading, spacing: DS.Space.xl) {
+            // Intestazione
+            HStack(spacing: DS.Space.s) {
+                Image(systemName: "checkmark.shield")
+                    .font(.system(size: 18, weight: .semibold))
+                    .foregroundStyle(BathysPalette.emerald)
+                    .frame(width: 44, height: 44)
+                    .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(BathysPalette.emerald.opacity(0.15)))
+                VStack(alignment: .leading, spacing: DS.Space.xxs) {
+                    Text(it ? "Privacy e sicurezza" : "Privacy and safety")
+                        .font(DS.Font.title)
+                        .foregroundStyle(DS.Ink.primary)
+                    Text(it ? "Come Bathys protegge i tuoi dati e il tuo Mac." : "How Bathys protects your data and your Mac.")
+                        .font(DS.Font.body)
+                        .foregroundStyle(DS.Ink.secondary)
                 }
-
-                Divider()
-                    .background(Color.white.opacity(0.08))
-
-                // 4 Safety Pillars
-                VStack(alignment: .leading, spacing: 14) {
-                    PrivacyPillarRow(
-                        icon: "network.slash",
-                        tint: BathysPalette.sky,
-                        title: "Zero Connessioni & Zero Archiviazione Esterna",
-                        description: "Bathys opera 100% offline sul tuo processore. Nessun dato, nome di file o statistica viene mai inviato a server esterni né tracciato."
-                    )
-
-                    PrivacyPillarRow(
-                        icon: "lock.fill",
-                        tint: BathysPalette.emerald,
-                        title: "Dati Personali Intoccabili",
-                        description: "Documenti, Foto, Scrivania, Messaggi, Mail e Portachiavi (Keychains) non vengono mai letti né aperti. Vengono analizzati esclusivamente file temporanei e cache usa-e-getta."
-                    )
-
-                    PrivacyPillarRow(
-                        icon: "hand.raised.fill",
-                        tint: BathysPalette.amber,
-                        title: "Nessuna Cancellazione Autonoma",
-                        description: "Le scansioni operano in sola lettura. Nessun elemento viene spostato nel Cestino senza la tua esplicita conferma."
-                    )
-
-                    // Full Disk Access Row
-                    VStack(alignment: .leading, spacing: 8) {
-                        HStack(spacing: 12) {
-                            ZStack {
-                                RoundedRectangle(cornerRadius: 8, style: .continuous)
-                                    .fill(BathysPalette.teal.opacity(0.14))
-                                    .frame(width: 32, height: 32)
-                                Image(systemName: "internaldrive.fill")
-                                    .font(.system(size: 13))
-                                    .foregroundStyle(BathysPalette.teal)
-                            }
-
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text("Accesso Completo al Disco (Full Disk Access)")
-                                    .font(.system(size: 13.5, weight: .medium))
-                                    .foregroundStyle(.white)
-
-                                Text("Necessario per calcolare le cache applicative in ~/Library e /var/folders.")
-                                    .font(.system(size: 12, weight: .regular))
-                                    .foregroundStyle(BathysPalette.textTertiary)
-                            }
-
-                            Spacer()
-
-                            if permissionManager.hasFullDiskAccess {
-                                HStack(spacing: 4) {
-                                    Image(systemName: "checkmark.circle.fill")
-                                        .font(.system(size: 11))
-                                    Text("Concesso")
-                                        .font(.system(size: 11.5, weight: .medium))
-                                }
-                                .foregroundStyle(BathysPalette.emerald)
-                                .padding(.horizontal, 9)
-                                .padding(.vertical, 4)
-                                .background(Capsule().fill(BathysPalette.emerald.opacity(0.12)))
-                            } else {
-                                Button {
-                                    permissionManager.openSystemSettingsFullDiskAccess()
-                                } label: {
-                                    HStack(spacing: 4) {
-                                        Image(systemName: "gearshape")
-                                            .font(.system(size: 11))
-                                        Text("Apri Impostazioni")
-                                            .font(.system(size: 11.5, weight: .medium))
-                                    }
-                                    .foregroundStyle(.white)
-                                    .padding(.horizontal, 10)
-                                    .padding(.vertical, 5)
-                                    .background(Capsule().fill(BathysPalette.surfaceFillHover))
-                                    .overlay(Capsule().strokeBorder(BathysPalette.hairline, lineWidth: 1))
-                                }
-                                .buttonStyle(.plain)
-                            }
-                        }
-
-                        if !permissionManager.hasFullDiskAccess {
-                            HStack(alignment: .top, spacing: 8) {
-                                Image(systemName: "lightbulb.fill")
-                                    .font(.system(size: 11))
-                                    .foregroundStyle(BathysPalette.amber)
-                                Text("Basta una volta sola: premi \"Apri Impostazioni\" e attiva la levetta per Bathys. Da quel momento analizzerà tutto il Mac senza mai più chiederti permessi individuali.")
-                                    .font(.system(size: 11.5, weight: .regular))
-                                    .foregroundStyle(BathysPalette.textSecondary)
-                                    .fixedSize(horizontal: false, vertical: true)
-                            }
-                            .padding(.top, 4)
-                        }
-                    }
-                    .padding(12)
-                    .background(
-                        RoundedRectangle(cornerRadius: 10, style: .continuous)
-                            .fill(BathysPalette.surfaceFill)
-                    )
-                }
-
-                // Bottom Buttons
-                HStack {
-                    Button {
-                        permissionManager.checkPermissions()
-                    } label: {
-                        HStack(spacing: 5) {
-                            Image(systemName: "arrow.clockwise")
-                                .font(.system(size: 11))
-                            Text("Ricontrolla Permesso")
-                                .font(.system(size: 12.5, weight: .regular))
-                        }
-                        .foregroundStyle(BathysPalette.textSecondary)
-                    }
-                    .buttonStyle(.plain)
-
-                    Spacer()
-
-                    Button {
-                        permissionManager.hasSeenPrivacyOnboarding = true
-                        onDismiss()
-                    } label: {
-                        Text("Ho Compreso e Accetto")
-                            .font(.system(size: 13.5, weight: .medium))
-                            .foregroundStyle(.white)
-                            .padding(.horizontal, 22)
-                            .padding(.vertical, 8)
-                            .background(Capsule().fill(BathysPalette.teal))
-                    }
-                    .buttonStyle(.plain)
-                }
-                .padding(.top, 4)
             }
-            .padding(.horizontal, 32)
-            .padding(.vertical, 28)
+
+            // Garanzie
+            VStack(alignment: .leading, spacing: DS.Space.m) {
+                PrivacyPillarRow(
+                    icon: "network.slash",
+                    tint: BathysPalette.sky,
+                    title: it ? "Nessun dato inviato" : "No data leaves your Mac",
+                    description: it
+                        ? "Tutte le analisi avvengono sul tuo Mac. L'unica connessione è il controllo degli aggiornamenti di Bathys."
+                        : "Every analysis runs on your Mac. The only connection is Bathys checking for updates."
+                )
+                PrivacyPillarRow(
+                    icon: "lock",
+                    tint: BathysPalette.emerald,
+                    title: it ? "I tuoi file personali non si toccano" : "Your personal files stay untouched",
+                    description: it
+                        ? "Documenti, foto, messaggi, mail e portachiavi non vengono mai aperti: Bathys lavora solo su cache e file temporanei."
+                        : "Documents, photos, messages, mail and keychains are never opened: Bathys only works on caches and temporary files."
+                )
+                PrivacyPillarRow(
+                    icon: "hand.raised",
+                    tint: BathysPalette.amber,
+                    title: it ? "Niente viene rimosso da solo" : "Nothing is removed on its own",
+                    description: it
+                        ? "Le scansioni leggono e basta. Ogni rimozione chiede conferma e finisce nel Cestino."
+                        : "Scans only read. Every removal asks for confirmation and goes to the Trash."
+                )
+            }
+
+            // Accesso Completo al Disco
+            VStack(alignment: .leading, spacing: DS.Space.s) {
+                HStack(spacing: DS.Space.s) {
+                    Image(systemName: "internaldrive")
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundStyle(BathysPalette.teal)
+                        .frame(width: 32, height: 32)
+                        .background(RoundedRectangle(cornerRadius: 9, style: .continuous).fill(BathysPalette.teal.opacity(0.14)))
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(it ? "Accesso Completo al Disco" : "Full Disk Access")
+                            .font(DS.Font.headline)
+                            .foregroundStyle(DS.Ink.primary)
+                        Text(it ? "Serve per misurare tutte le cache delle app." : "Needed to measure every app cache.")
+                            .font(DS.Font.caption)
+                            .foregroundStyle(DS.Ink.tertiary)
+                    }
+                    Spacer(minLength: DS.Space.s)
+                    if permissionManager.hasFullDiskAccess {
+                        DSBadge(text: it ? "Concesso" : "Granted", icon: "checkmark", tint: BathysPalette.emerald)
+                    } else {
+                        Button {
+                            permissionManager.openSystemSettingsFullDiskAccess()
+                        } label: {
+                            Text(it ? "Apri Impostazioni" : "Open Settings")
+                        }
+                        .buttonStyle(.ds(.primary, tint: BathysPalette.teal))
+                    }
+                }
+                if !permissionManager.hasFullDiskAccess {
+                    Text(it
+                         ? "Si fa una volta sola: apri Impostazioni di Sistema e attiva l'interruttore accanto a Bathys."
+                         : "You only do this once: open System Settings and turn on the switch next to Bathys.")
+                        .font(DS.Font.caption)
+                        .foregroundStyle(DS.Ink.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .padding(.leading, 44)
+                }
+            }
+            .padding(DS.Space.m)
+            .dsSurface(radius: DS.Radius.row)
+
+            // Azioni
+            HStack(spacing: DS.Space.xs) {
+                Button {
+                    permissionManager.checkPermissions()
+                } label: {
+                    Label(it ? "Ricontrolla" : "Check again", systemImage: "arrow.clockwise")
+                }
+                .buttonStyle(.ds(.quiet))
+
+                Spacer()
+
+                Button(it ? "Ho capito" : "Got it") {
+                    permissionManager.hasSeenPrivacyOnboarding = true
+                    onDismiss()
+                }
+                .buttonStyle(.ds(.primary, size: .large))
+                .keyboardShortcut(.defaultAction)
+            }
         }
-        .frame(width: 580)
-        .background(BathysPalette.workspaceBottom)
+        .padding(DS.Space.xxl)
+        .frame(width: 560)
+        .background(DS.Ink.groundDeep)
         .background(SheetWindowCustomizer())
-        .ignoresSafeArea()
         .preferredColorScheme(.dark)
     }
 }
@@ -3068,25 +2541,21 @@ struct PrivacyPillarRow: View {
     let description: String
 
     var body: some View {
-        HStack(alignment: .top, spacing: 12) {
-            ZStack {
-                RoundedRectangle(cornerRadius: 8, style: .continuous)
-                    .fill(tint.opacity(0.14))
-                    .frame(width: 32, height: 32)
-                Image(systemName: icon)
-                    .font(.system(size: 13))
-                    .foregroundStyle(tint)
-            }
-
-            VStack(alignment: .leading, spacing: 2) {
+        HStack(alignment: .top, spacing: DS.Space.s) {
+            Image(systemName: icon)
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundStyle(tint)
+                .frame(width: 32, height: 32)
+                .background(RoundedRectangle(cornerRadius: 9, style: .continuous).fill(tint.opacity(0.14)))
+            VStack(alignment: .leading, spacing: 3) {
                 Text(title)
-                    .font(.system(size: 13.5, weight: .medium))
-                    .foregroundStyle(.white)
-
+                    .font(DS.Font.headline)
+                    .foregroundStyle(DS.Ink.primary)
                 Text(description)
-                    .font(.system(size: 12, weight: .regular))
-                    .foregroundStyle(BathysPalette.textTertiary)
+                    .font(DS.Font.caption)
+                    .foregroundStyle(DS.Ink.secondary)
                     .lineSpacing(2)
+                    .fixedSize(horizontal: false, vertical: true)
             }
         }
     }

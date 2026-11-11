@@ -37,13 +37,21 @@ struct LeftThemedOceanPane: View {
     let uninstaller: UninstallerEngine
     let optimizer: OptimizerEngine
 
+    /// Stato della finestra: le animazioni si fermano quando Bathys non è in primo piano o non è visibile
+    @Environment(\.controlActiveState) private var controlActiveState
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var isWindowVisible = true
+
     var body: some View {
         GeometryReader { proxy in
             let w = proxy.size.width
             let h = proxy.size.height
 
             let isHighActivity = scanner.isScanning || scanner.isCleaning || scanner.isResurfacing || sonar.isScanning || uninstaller.isLoadingApps || optimizer.isRunningTasks
-            TimelineView(.animation(minimumInterval: isHighActivity ? (1.0 / 60.0) : (1.0 / 30.0))) { timeline in
+            // Risparmio energetico: nessun ridisegno se la finestra è nascosta/ridotta a icona; da inattiva o con
+            // "Riduci movimento" la scena resta ferma, salvo durante un'operazione in corso (immersione, pulizia…)
+            let isPaused = !isWindowVisible || (!isHighActivity && (controlActiveState == .inactive || reduceMotion))
+            TimelineView(.animation(minimumInterval: isHighActivity ? (1.0 / 60.0) : (1.0 / 30.0), paused: isPaused)) { timeline in
                 let time = timeline.date.timeIntervalSinceReferenceDate
 
                 ZStack {
@@ -141,6 +149,15 @@ struct LeftThemedOceanPane: View {
                         )
                     }
                 }
+                // Composizione dell'intera scena in un'unica texture Metal: molto meno lavoro per la CPU
+                .drawingGroup()
+            }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: NSWindow.didChangeOcclusionStateNotification)) { note in
+            guard let window = note.object as? NSWindow, window.isVisible || window.isMiniaturized else { return }
+            // Considera solo la finestra principale (non i fogli modali)
+            if window.sheetParent == nil {
+                isWindowVisible = window.occlusionState.contains(.visible)
             }
         }
     }
@@ -149,66 +166,6 @@ struct LeftThemedOceanPane: View {
 // MARK: - SCENE 2: SONAR (Command Bridge Tactical Sonar Console)
 
 // MARK: - SCENE 2: SONAR (Command Deck Nautical Console Housing)
-
-struct ConsoleCornerScrews: View {
-    let size: CGFloat
-    let inset: CGFloat = 14.0
-    let screwDiameter: CGFloat = 8.0
-
-    var body: some View {
-        Canvas { context, _ in
-            let corners: [(CGPoint, Double)] = [
-                (CGPoint(x: inset, y: inset), 35.0),
-                (CGPoint(x: size - inset, y: inset), 115.0),
-                (CGPoint(x: inset, y: size - inset), -40.0),
-                (CGPoint(x: size - inset, y: size - inset), 70.0)
-            ]
-
-            for (pos, angleDeg) in corners {
-                let r = screwDiameter / 2.0
-                let rect = CGRect(x: pos.x - r, y: pos.y - r, width: screwDiameter, height: screwDiameter)
-
-                // 1. Recessed bezel shadow
-                context.stroke(
-                    Path(ellipseIn: rect.insetBy(dx: -1.0, dy: -1.0)),
-                    with: .color(Color.black.opacity(0.80)),
-                    lineWidth: 1.0
-                )
-
-                // 2. Machined titanium screw head
-                context.fill(
-                    Path(ellipseIn: rect),
-                    with: .color(Color(red: 0.18, green: 0.24, blue: 0.32))
-                )
-                context.stroke(
-                    Path(ellipseIn: rect),
-                    with: .color(Color.white.opacity(0.28)),
-                    lineWidth: 0.7
-                )
-
-                // 3. Realistic screw slot
-                let rad = angleDeg * Double.pi / 180.0
-                let slotLen = r * 0.72
-                let dx = cos(rad) * slotLen
-                let dy = sin(rad) * slotLen
-
-                // Shadow line
-                var shadowSlot = Path()
-                shadowSlot.move(to: CGPoint(x: pos.x - dx, y: pos.y - dy + 0.6))
-                shadowSlot.addLine(to: CGPoint(x: pos.x + dx, y: pos.y + dy + 0.6))
-                context.stroke(shadowSlot, with: .color(Color.black.opacity(0.90)), lineWidth: 1.0)
-
-                // Highlight line
-                var highlightSlot = Path()
-                highlightSlot.move(to: CGPoint(x: pos.x - dx, y: pos.y - dy))
-                highlightSlot.addLine(to: CGPoint(x: pos.x + dx, y: pos.y + dy))
-                context.stroke(highlightSlot, with: .color(Color(red: 0.08, green: 0.12, blue: 0.18)), lineWidth: 0.9)
-            }
-        }
-        .frame(width: size, height: size)
-        .allowsHitTesting(false)
-    }
-}
 
 struct NauticalConsolePanel<Content: View>: View {
     let size: CGFloat
@@ -221,40 +178,15 @@ struct NauticalConsolePanel<Content: View>: View {
 
     var body: some View {
         ZStack {
-            // Dark machined marine console panel
-            RoundedRectangle(cornerRadius: 18, style: .continuous)
-                .fill(
-                    LinearGradient(
-                        colors: [
-                            Color(red: 0.05, green: 0.09, blue: 0.15).opacity(0.96),
-                            Color(red: 0.02, green: 0.05, blue: 0.10).opacity(0.98)
-                        ],
-                        startPoint: .topLeading,
-                        endPoint: .bottomTrailing
-                    )
+            // Superficie piatta e leggera (niente viti né cornici metalliche)
+            RoundedRectangle(cornerRadius: 32, style: .continuous)
+                .fill(Color.white.opacity(0.035))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 32, style: .continuous)
+                        .strokeBorder(Color.white.opacity(0.07), lineWidth: 1)
                 )
                 .frame(width: size, height: size)
-                .overlay(
-                    RoundedRectangle(cornerRadius: 18, style: .continuous)
-                        .strokeBorder(
-                            LinearGradient(
-                                colors: [
-                                    Color.white.opacity(0.14),
-                                    Color.white.opacity(0.04),
-                                    BathysPalette.sky.opacity(0.12)
-                                ],
-                                startPoint: .topLeading,
-                                endPoint: .bottomTrailing
-                            ),
-                            lineWidth: 1
-                        )
-                )
-                .shadow(color: Color.black.opacity(0.55), radius: 18, y: 8)
 
-            // 4 Corner Screws
-            ConsoleCornerScrews(size: size)
-
-            // The Radar or Sunburst Instrument inside
             content()
         }
         .frame(width: size, height: size)
@@ -434,9 +366,7 @@ struct SonarRadarInstrument: View {
                 .strokeBorder(BathysPalette.sky.opacity(0.40), lineWidth: 1)
                 .frame(width: 44, height: 44)
 
-            BathysAsset.image(named: "submarine_yellow")
-                .resizable()
-                .aspectRatio(contentMode: .fit)
+            BathysArt(name: "submarine_yellow")
                 .frame(width: 54, height: 42)
                 .shadow(color: Color.black.opacity(0.60), radius: 6, y: 3)
         }
@@ -528,14 +458,11 @@ struct DecompressionUninstallerScene: View {
             .allowsHitTesting(false)
 
             // 2. Sottomarino Ispettore
-            BathysAsset.image(named: "submarine_yellow")
-                .resizable()
-                .aspectRatio(contentMode: .fit)
+            BathysArt(name: "submarine_yellow")
                 .frame(width: 145, height: 116)
                 .scaleEffect(x: -1, y: 1)
                 .rotationEffect(.degrees(10 + sin(time * 1.2) * 1.2))
                 .position(x: subX, y: subY)
-                .shadow(color: Color.black.opacity(0.38), radius: 10, y: 6)
 
             // 3. Capsula di Decompressione & Ispezione ad Alta Fedeltà (High-Craft Bathysphere)
             ZStack {
@@ -563,51 +490,16 @@ struct DecompressionUninstallerScene: View {
                     )
                     .frame(width: 132, height: 132)
 
-                // Sfera di cristallo pressurizzata
+                // Oblò piatto: disco blu notte con bordo nel colore del tema
                 Circle()
-                    .fill(
-                        RadialGradient(
-                            colors: [
-                                Color(red: 0.12, green: 0.22, blue: 0.35).opacity(0.75),
-                                Color(red: 0.04, green: 0.08, blue: 0.16).opacity(0.88),
-                                Color.black.opacity(0.55)
-                            ],
-                            center: .topLeading,
-                            startRadius: 8,
-                            endRadius: 65
-                        )
-                    )
+                    .fill(Color(red: 0.07, green: 0.14, blue: 0.24))
                     .frame(width: 118, height: 118)
                     .overlay(
-                        // Riflesso speculare superiore a lunetta
-                        Circle()
-                            .strokeBorder(
-                                LinearGradient(
-                                    colors: [
-                                        Color.white.opacity(0.65),
-                                        BathysPalette.teal.opacity(0.40),
-                                        Color.white.opacity(0.08)
-                                    ],
-                                    startPoint: .topLeading,
-                                    endPoint: .bottomTrailing
-                                ),
-                                lineWidth: 1.5
-                            )
+                        Circle().strokeBorder(BathysPalette.teal.opacity(0.55), lineWidth: 2)
                     )
                     .overlay(
-                        // Lunetta di luce interna superiore
-                        Ellipse()
-                            .fill(
-                                LinearGradient(
-                                    colors: [Color.white.opacity(0.22), Color.clear],
-                                    startPoint: .top,
-                                    endPoint: .bottom
-                                )
-                            )
-                            .frame(width: 70, height: 26)
-                            .offset(y: -42)
+                        Circle().strokeBorder(Color(red: 0.12, green: 0.22, blue: 0.34), lineWidth: 6).padding(2)
                     )
-                    .shadow(color: Color.black.opacity(0.45), radius: 20, y: 10)
 
                 // Icona App Sospesa nel Fluido Iperbarico
                 if let app = uninstaller.selectedApp {
@@ -678,9 +570,7 @@ struct PropulsionTelemetryScene: View {
                     .position(x: 175 * 0.5 + 77.0 + 160.0, y: 140 * 0.5 + 24.5)
 
                 // Fusoliera sottomarino
-                BathysAsset.image(named: "submarine_hull")
-                    .resizable()
-                    .aspectRatio(contentMode: .fit)
+                BathysArt(name: "submarine_hull")
                     .frame(width: 175, height: 140)
                     .shadow(color: Color.black.opacity(0.38), radius: 12, y: 8)
 

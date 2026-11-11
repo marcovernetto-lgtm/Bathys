@@ -78,11 +78,11 @@ enum L10n {
     }
 
     static var protectionActive: String {
-        lang == .italian ? "Protezione & Privacy ✓" : "Protection & Privacy ✓"
+        lang == .italian ? "Accesso completo attivo" : "Full access on"
     }
 
     static var grantFullDiskAccess: String {
-        lang == .italian ? "Attiva Accesso Completo al Disco" : "Grant Full Disk Access"
+        lang == .italian ? "Attiva Accesso al Disco" : "Grant Disk Access"
     }
 
     static var deepScanTitle: String {
