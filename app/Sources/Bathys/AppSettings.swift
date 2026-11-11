@@ -78,7 +78,7 @@ enum L10n {
     }
 
     static var protectionActive: String {
-        lang == .italian ? "Accesso completo attivo" : "Full access on"
+        lang == .italian ? "Protezione & Privacy ✓" : "Protection & Privacy ✓"
     }
 
     static var grantFullDiskAccess: String {

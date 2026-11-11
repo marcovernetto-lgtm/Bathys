@@ -38,26 +38,38 @@ struct SettingsSheetView: View {
     var body: some View {
         ZStack {
             // Sfondo abissale raffinato
-            DS.Ink.groundDeep
-                .ignoresSafeArea()
+            LinearGradient(
+                colors: [
+                    Color(red: 0.052, green: 0.075, blue: 0.120),
+                    Color(red: 0.035, green: 0.050, blue: 0.085)
+                ],
+                startPoint: .topLeading,
+                endPoint: .bottomTrailing
+            )
+            .ignoresSafeArea()
 
             VStack(spacing: 0) {
                 // MARK: - Header Compatto & Elegante
                 HStack(spacing: 14) {
-                    Image(systemName: "gearshape")
-                        .font(.system(size: 15, weight: .semibold))
-                        .foregroundStyle(BathysPalette.sky)
-                        .frame(width: 36, height: 36)
-                        .background(RoundedRectangle(cornerRadius: 10, style: .continuous).fill(BathysPalette.sky.opacity(0.14)))
+                    ZStack {
+                        Circle()
+                            .fill(BathysPalette.sky.opacity(0.12))
+                            .frame(width: 36, height: 36)
+                            .overlay(Circle().strokeBorder(BathysPalette.sky.opacity(0.35), lineWidth: 1))
+
+                        Image(systemName: "gearshape.fill")
+                            .font(.system(size: 15, weight: .semibold))
+                            .foregroundStyle(BathysPalette.sky)
+                    }
 
                     VStack(alignment: .leading, spacing: 2) {
                         Text(isItalian ? "Impostazioni" : "Settings")
-                            .font(DS.Font.title)
-                            .foregroundStyle(DS.Ink.primary)
+                            .font(.system(size: 17, weight: .bold, design: .rounded))
+                            .foregroundStyle(Color.white)
 
-                        Text(isItalian ? "Lingua, avvisi, pulizia e aggiornamenti" : "Language, alerts, cleanup and updates")
-                            .font(DS.Font.caption)
-                            .foregroundStyle(DS.Ink.secondary)
+                        Text(isItalian ? "Preferenze di sistema e configurazione di Bathys" : "System preferences and Bathys configuration")
+                            .font(.system(size: 11.5, weight: .regular))
+                            .foregroundStyle(BathysPalette.textSecondary)
                     }
 
                     Spacer()
@@ -96,18 +108,20 @@ struct SettingsSheetView: View {
                                         .frame(width: 6, height: 6)
                                 }
                             }
-                            .padding(.horizontal, 12)
-                            .frame(height: 30)
+                            .padding(.horizontal, 14)
+                            .padding(.vertical, 6)
                             .background(
-                                RoundedRectangle(cornerRadius: 8, style: .continuous)
-                                    .fill(selectedTab == tab ? BathysPalette.sky.opacity(0.18) : Color.clear)
+                                Capsule()
+                                    .fill(selectedTab == tab ? BathysPalette.sky.opacity(0.18) : Color.white.opacity(0.035))
                             )
                             .overlay(
-                                RoundedRectangle(cornerRadius: 8, style: .continuous)
-                                    .strokeBorder(selectedTab == tab ? BathysPalette.sky.opacity(0.45) : Color.clear, lineWidth: 1)
+                                Capsule()
+                                    .strokeBorder(
+                                        selectedTab == tab ? BathysPalette.sky.opacity(0.55) : Color.white.opacity(0.07),
+                                        lineWidth: 1
+                                    )
                             )
-                            .foregroundStyle(selectedTab == tab ? DS.Ink.primary : DS.Ink.secondary)
-                            .contentShape(Rectangle())
+                            .foregroundStyle(selectedTab == tab ? Color.white : BathysPalette.textSecondary)
                         }
                         .buttonStyle(.plain)
                     }
@@ -117,9 +131,8 @@ struct SettingsSheetView: View {
                 .padding(.horizontal, 26)
                 .padding(.bottom, 14)
 
-                Rectangle()
-                    .fill(DS.Ink.hairline)
-                    .frame(height: 1)
+                Divider()
+                    .background(Color.white.opacity(0.07))
 
                 // MARK: - Corpo Scheda Contenuto (Scroll protetto anti-taglio)
                 ScrollView(.vertical, showsIndicators: false) {
@@ -138,9 +151,8 @@ struct SettingsSheetView: View {
                 }
                 .frame(maxHeight: .infinity)
 
-                Rectangle()
-                    .fill(DS.Ink.hairline)
-                    .frame(height: 1)
+                Divider()
+                    .background(Color.white.opacity(0.07))
 
                 // MARK: - Footer Fisso Ancorato (Sempre Visibile)
                 HStack {
@@ -149,17 +161,31 @@ struct SettingsSheetView: View {
                             .fill(BathysPalette.emerald)
                             .frame(width: 6, height: 6)
 
-                        Text("Bathys \(updateManager.currentVersion)")
-                            .font(DS.Font.caption)
-                            .foregroundStyle(DS.Ink.tertiary)
+                        Text("Bathys ⚓️ v\(updateManager.currentVersion) • Universal (Apple Silicon & Intel)")
+                            .font(.system(size: 11, weight: .medium))
+                            .foregroundStyle(BathysPalette.textMuted)
                     }
 
                     Spacer()
 
-                    Button(isItalian ? "Fine" : "Done") {
+                    Button {
                         dismiss()
+                    } label: {
+                        Text(isItalian ? "Fine" : "Done")
+                            .font(.system(size: 12.5, weight: .semibold))
+                            .foregroundStyle(Color.white)
+                            .padding(.horizontal, 22)
+                            .padding(.vertical, 6)
+                            .background(
+                                Capsule()
+                                    .fill(BathysPalette.sky.opacity(0.35))
+                            )
+                            .overlay(
+                                Capsule()
+                                    .strokeBorder(BathysPalette.sky.opacity(0.70), lineWidth: 1)
+                            )
                     }
-                    .buttonStyle(.ds(.primary))
+                    .buttonStyle(.plain)
                     .keyboardShortcut(.defaultAction)
                 }
                 .padding(.horizontal, 26)
@@ -238,7 +264,7 @@ struct SettingsSheetView: View {
                     Spacer()
 
                     Toggle("", isOn: $settings.soundNotificationsEnabled)
-                        .toggleStyle(DSToggleStyle())
+                        .toggleStyle(.switch)
                         .labelsHidden()
                 }
 
@@ -264,7 +290,7 @@ struct SettingsSheetView: View {
                     Spacer()
 
                     Toggle("", isOn: $settings.systemNotificationsEnabled)
-                        .toggleStyle(DSToggleStyle())
+                        .toggleStyle(.switch)
                         .labelsHidden()
                 }
             }
@@ -296,7 +322,7 @@ struct SettingsSheetView: View {
                     Spacer()
 
                     Toggle("", isOn: $settings.confirmBeforeClean)
-                        .toggleStyle(DSToggleStyle())
+                        .toggleStyle(.switch)
                         .labelsHidden()
                 }
 
@@ -321,10 +347,14 @@ struct SettingsSheetView: View {
 
                     Spacer()
 
-                    DSSegmented(
-                        options: [(value: 50, label: "50 MB"), (value: 100, label: "100 MB"), (value: 250, label: "250 MB"), (value: 500, label: "500 MB")],
-                        selection: $settings.sonarThresholdMB
-                    )
+                    Picker("", selection: $settings.sonarThresholdMB) {
+                        Text("50 MB").tag(50)
+                        Text("100 MB").tag(100)
+                        Text("250 MB").tag(250)
+                        Text("500 MB").tag(500)
+                    }
+                    .pickerStyle(.segmented)
+                    .frame(width: 220)
                 }
             }
         }
@@ -409,7 +439,7 @@ struct SettingsSheetView: View {
                         case .error(let msg):
                             Text(msg)
                                 .font(.system(size: 11, weight: .regular))
-                                .foregroundStyle(BathysPalette.coral)
+                                .foregroundStyle(Color.red.opacity(0.9))
                                 .lineLimit(2)
                         }
                     }
@@ -421,9 +451,19 @@ struct SettingsSheetView: View {
                         Button {
                             updateManager.checkForUpdates(silent: false)
                         } label: {
-                            Label(isItalian ? "Verifica ora" : "Check now", systemImage: "arrow.triangle.2.circlepath")
+                            HStack(spacing: 5) {
+                                Image(systemName: "arrow.triangle.2.circlepath")
+                                    .font(.system(size: 10.5, weight: .semibold))
+                                Text(isItalian ? "Verifica ora" : "Check now")
+                                    .font(.system(size: 11.5, weight: .medium))
+                            }
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 6)
+                            .background(Capsule().fill(BathysPalette.sky.opacity(0.12)))
+                            .overlay(Capsule().strokeBorder(BathysPalette.sky.opacity(0.40), lineWidth: 1))
+                            .foregroundStyle(BathysPalette.sky)
                         }
-                        .buttonStyle(.ds(.secondary))
+                        .buttonStyle(.plain)
 
                     case .checking:
                         ProgressView()
@@ -434,27 +474,57 @@ struct SettingsSheetView: View {
                         Button {
                             updateManager.downloadAndInstallUpdate()
                         } label: {
-                            Label(isItalian ? "Aggiorna ora" : "Update now", systemImage: "arrow.down")
+                            HStack(spacing: 6) {
+                                Image(systemName: "arrow.down.circle.fill")
+                                    .font(.system(size: 11.5, weight: .semibold))
+                                Text(isItalian ? "Aggiorna ora" : "Update now")
+                                    .font(.system(size: 12, weight: .bold))
+                            }
+                            .padding(.horizontal, 14)
+                            .padding(.vertical, 6)
+                            .background(Capsule().fill(BathysPalette.emerald.opacity(0.28)))
+                            .overlay(Capsule().strokeBorder(BathysPalette.emerald, lineWidth: 1))
+                            .foregroundStyle(Color.white)
                         }
-                        .buttonStyle(.ds(.primary, tint: BathysPalette.emerald))
+                        .buttonStyle(.plain)
 
                     case .downloading(let progress):
-                        DSProgressBar(value: progress, tint: BathysPalette.sky, height: 5)
-                            .frame(width: 120)
+                        ProgressView(value: progress)
+                            .progressViewStyle(.linear)
+                            .frame(width: 100)
+                            .tint(BathysPalette.sky)
 
                     case .readyToRestart:
                         Button {
                             updateManager.relaunchApplication()
                         } label: {
-                            Label(isItalian ? "Riavvia ora" : "Relaunch now", systemImage: "arrow.clockwise")
+                            HStack(spacing: 6) {
+                                Image(systemName: "arrow.clockwise.circle.fill")
+                                    .font(.system(size: 11.5, weight: .bold))
+                                Text(isItalian ? "Riavvia ora" : "Relaunch now")
+                                    .font(.system(size: 12, weight: .bold))
+                            }
+                            .padding(.horizontal, 14)
+                            .padding(.vertical, 6)
+                            .background(Capsule().fill(BathysPalette.emerald.opacity(0.35)))
+                            .overlay(Capsule().strokeBorder(BathysPalette.emerald, lineWidth: 1))
+                            .foregroundStyle(Color.white)
                         }
-                        .buttonStyle(.ds(.primary, tint: BathysPalette.emerald))
+                        .buttonStyle(.plain)
 
                     case .error:
-                        Button(isItalian ? "Riprova" : "Retry") {
+                        Button {
                             updateManager.checkForUpdates(silent: false)
+                        } label: {
+                            Text(isItalian ? "Riprova" : "Retry")
+                                .font(.system(size: 11.5, weight: .medium))
+                                .padding(.horizontal, 12)
+                                .padding(.vertical, 6)
+                                .background(Capsule().fill(Color.red.opacity(0.15)))
+                                .overlay(Capsule().strokeBorder(Color.red.opacity(0.5), lineWidth: 1))
+                                .foregroundStyle(Color.white)
                         }
-                        .buttonStyle(.ds(.secondary))
+                        .buttonStyle(.plain)
                     }
                 }
             }
@@ -475,13 +545,15 @@ private struct LanguagePillButton: View {
     var body: some View {
         Button(action: action) {
             HStack(spacing: 5) {
+                Text(flag)
+                    .font(.system(size: 12))
                 Text(title)
                     .font(.system(size: 11.5, weight: isSelected ? .semibold : .medium))
             }
             .padding(.horizontal, 10)
-            .frame(height: 28)
+            .padding(.vertical, 5)
             .background(
-                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                Capsule()
                     .fill(
                         isSelected
                             ? BathysPalette.sky.opacity(0.22)
@@ -489,10 +561,10 @@ private struct LanguagePillButton: View {
                     )
             )
             .overlay(
-                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                Capsule()
                     .strokeBorder(
                         isSelected
-                            ? BathysPalette.sky.opacity(0.55)
+                            ? BathysPalette.sky.opacity(0.70)
                             : (isHovered ? Color.white.opacity(0.20) : Color.white.opacity(0.08)),
                         lineWidth: 1
                     )
@@ -513,8 +585,15 @@ private struct ModernSectionGroup<Content: View>: View {
         VStack(alignment: .leading, spacing: 0) {
             content()
         }
-        .padding(.horizontal, DS.Space.m)
-        .padding(.vertical, DS.Space.s)
-        .dsSurface(radius: DS.Radius.row)
+        .padding(.horizontal, 18)
+        .padding(.vertical, 14)
+        .background(
+            RoundedRectangle(cornerRadius: 12)
+                .fill(Color.white.opacity(0.025))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 12)
+                .strokeBorder(Color.white.opacity(0.07), lineWidth: 1)
+        )
     }
 }

@@ -29,8 +29,8 @@ Used occasionally, in short sessions, often when the disk is nearly full. Window
 
 ## Brand Commitments
 - Name: Bathys. Ocean / submarine theme, playful and themed but never heavy.
-- Approved flat vector illustration set (yellow submarine mascot, fish, corals, algae, seabed, debris) in `app/Sources/Bathys/FlatArt.swift`.
-- UI must look professionally designed (Apple / CleanMyMac quality bar): custom controls, correct spacing, nothing truncated, clipped or cramped; never "default control" or generic generated look.
+- The original visual identity is approved and binding: 3D-rendered yellow submarine mascot, fish, corals, seabed and debris (PNG assets in `app/Sources/Bathys/Assets`), periscope "BATHYS" logo, machined round action buttons, nautical console panels. A flat-vector redesign with a new design system was tried and explicitly rejected by the user ("graficamente era molto meglio prima").
+- Fixes must keep this look: no truncated, clipped or cramped text; custom controls rather than stock ones.
 
 ## Evidence on Hand
 No testimonials, press, user counts or benchmarks exist; do not invent any. Real measured facts available: self-test suite (22 checks) and on-device measurements from development.

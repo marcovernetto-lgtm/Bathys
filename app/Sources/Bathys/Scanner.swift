@@ -353,12 +353,14 @@ final class Scanner {
     var totalBytes: Int64 { categories.reduce(0) { $0 + $1.bytes } }
     var selectedBytes: Int64 { categories.reduce(0) { $0 + $1.selectedBytes } }
 
-    /// Numero di applicazioni attualmente aperte nel Dock le cui sessioni attive vengono protette automaticamente
-    var protectedRunningAppsCount: Int {
+    /// Applicazioni attualmente aperte nel Dock le cui sessioni attive vengono protette automaticamente
+    var protectedRunningApps: [NSRunningApplication] {
         NSWorkspace.shared.runningApplications.filter {
             $0.activationPolicy == .regular && $0.bundleIdentifier != Bundle.main.bundleIdentifier
-        }.count
+        }
     }
+
+    var protectedRunningAppsCount: Int { protectedRunningApps.count }
 
     init() {
         let fm = FileManager.default
