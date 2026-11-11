@@ -1399,8 +1399,8 @@ struct DeepCleanModuleView: View {
             HStack(alignment: .lastTextBaseline) {
                 VStack(alignment: .leading, spacing: 5) {
                     Text(L10n.lang == .italian ? "Scansione Profonda" : "Deep Clean")
-                        .font(.system(size: 28, weight: .light))
-                        .tracking(-0.4)
+                        .font(.system(size: 34, weight: .light))
+                        .tracking(-0.5)
                         .foregroundStyle(BathysPalette.textPrimary)
                         .lineLimit(1)
 
@@ -1428,19 +1428,23 @@ struct DeepCleanModuleView: View {
                 .buttonStyle(.plain)
             }
             .padding(.horizontal, 52)
-            .padding(.top, 14)
-            .padding(.bottom, 12)
+            .padding(.top, 20)
+            .padding(.bottom, 20)
 
-            ScrollView(.vertical, showsIndicators: false) {
-                VStack(spacing: 5) {
-                    ForEach($scanner.categories) { $cat in
-                        SpaciousCategoryCard(category: $cat, hasScanned: false)
-                            .blurReveal(delay: Double(scanner.categories.firstIndex { $0.id == cat.id } ?? 0) * 0.045)
-                    }
+            Spacer(minLength: 0)
+
+            LazyVGrid(
+                columns: Array(repeating: GridItem(.flexible(), spacing: 14), count: 4),
+                spacing: 14
+            ) {
+                ForEach($scanner.categories) { $cat in
+                    CategoryTile(category: $cat)
+                        .blurReveal(delay: Double(scanner.categories.firstIndex { $0.id == cat.id } ?? 0) * 0.05)
                 }
-                .padding(.horizontal, 52)
-                .padding(.vertical, 2)
             }
+            .padding(.horizontal, 52)
+
+            Spacer(minLength: 12)
 
             // Bottom Machined Scan Instrument Button
             HStack {
@@ -1453,12 +1457,10 @@ struct DeepCleanModuleView: View {
                 ) {
                     scanner.scan()
                 }
-                .scaleEffect(0.84)
-                .frame(height: 112)
                 Spacer()
             }
-            .padding(.top, 6)
-            .padding(.bottom, 14)
+            .padding(.top, 12)
+            .padding(.bottom, 22)
         }
     }
 
@@ -1569,7 +1571,7 @@ struct DeepCleanModuleView: View {
 
             // Clean Category List (Fits non-zero categories cleanly with breathing room)
             ScrollView(.vertical, showsIndicators: false) {
-                VStack(spacing: 7) {
+                VStack(spacing: 9) {
                     ForEach($scanner.categories) { $cat in
                         if cat.bytes > 0 || scanner.categories.allSatisfy({ $0.bytes == 0 }) {
                             SpaciousCategoryCard(category: $cat, hasScanned: true)
@@ -1597,12 +1599,10 @@ struct DeepCleanModuleView: View {
                         scanner.cleanSelectedItems()
                     }
                 }
-                .scaleEffect(0.84)
-                .frame(height: 112)
                 Spacer()
             }
-            .padding(.top, 6)
-            .padding(.bottom, 14)
+            .padding(.top, 12)
+            .padding(.bottom, 22)
         }
     }
 }
@@ -1717,6 +1717,101 @@ struct ProtectedAppsIndicator: View {
     }
 }
 
+// MARK: - Colore d'accento di ogni area
+
+extension ScanCategory {
+    var accent: Color {
+        switch id {
+        case "caches": return BathysPalette.sky
+        case "appcaches": return BathysPalette.teal
+        case "temp": return BathysPalette.amber
+        case "dev": return BathysPalette.teal
+        case "logs": return BathysPalette.steel
+        case "xcode": return BathysPalette.emerald
+        case "orphans": return BathysPalette.yellow
+        case "trash": return BathysPalette.coral
+        default: return BathysPalette.sky
+        }
+    }
+}
+
+// MARK: - Riquadro area (vista a griglia prima della scansione)
+
+struct CategoryTile: View {
+    @Binding var category: ScanCategory
+    @State private var isHovered = false
+
+    var body: some View {
+        let tint = category.accent
+        let on = category.isSelected
+
+        Button {
+            withAnimation(.spring(response: 0.26, dampingFraction: 0.78)) {
+                category.isSelected.toggle()
+            }
+        } label: {
+            VStack(alignment: .leading, spacing: 0) {
+                HStack(alignment: .top) {
+                    ZStack {
+                        Circle()
+                            .fill(tint.opacity(on ? 0.18 : 0.08))
+                            .frame(width: 44, height: 44)
+                            .overlay(Circle().strokeBorder(tint.opacity(on ? 0.35 : 0.12), lineWidth: 1))
+                        Image(systemName: category.symbol)
+                            .font(.system(size: 17, weight: .medium))
+                            .foregroundStyle(on ? tint : BathysPalette.textTertiary)
+                    }
+
+                    Spacer(minLength: 4)
+
+                    // Spia di selezione
+                    ZStack {
+                        Circle()
+                            .strokeBorder(on ? Color.clear : Color.white.opacity(0.22), lineWidth: 1.2)
+                            .background(Circle().fill(on ? tint : Color.clear))
+                            .frame(width: 20, height: 20)
+                        if on {
+                            Image(systemName: "checkmark")
+                                .font(.system(size: 9.5, weight: .heavy))
+                                .foregroundStyle(Color(red: 0.024, green: 0.043, blue: 0.075))
+                                .transition(.scale(scale: 0.4).combined(with: .opacity))
+                        }
+                    }
+                }
+
+                Spacer(minLength: 10)
+
+                Text(category.title)
+                    .font(.system(size: 14, weight: .medium))
+                    .foregroundStyle(on ? BathysPalette.textPrimary : BathysPalette.textTertiary)
+                    .lineLimit(2)
+                    .multilineTextAlignment(.leading)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .padding(14)
+            .frame(maxWidth: .infinity, minHeight: 140, maxHeight: 140, alignment: .topLeading)
+            .background(
+                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                    .fill(isHovered ? BathysPalette.surfaceFillHover : BathysPalette.surfaceFill)
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                    .strokeBorder(on ? tint.opacity(isHovered ? 0.45 : 0.28) : (isHovered ? BathysPalette.hairlineHover : BathysPalette.hairline), lineWidth: 1)
+            )
+            .opacity(on ? 1 : 0.7)
+            .scaleEffect(isHovered ? 1.015 : 1)
+            .contentShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+        }
+        .buttonStyle(TactileCardButtonStyle())
+        .onHover { hovering in
+            withAnimation(.easeOut(duration: 0.16)) { isHovered = hovering }
+        }
+        .help(category.subtitle)
+        .accessibilityLabel(category.title)
+        .accessibilityValue(on ? Text(L10n.lang == .italian ? "Inclusa" : "Included") : Text(L10n.lang == .italian ? "Esclusa" : "Skipped"))
+    }
+}
+
 // MARK: - Clean Category Row (Tactile Round Controls, Zero Fluorescent Borders)
 
 struct SpaciousCategoryCard: View {
@@ -1726,29 +1821,29 @@ struct SpaciousCategoryCard: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            HStack(spacing: 12) {
+            HStack(spacing: 14) {
                 BathysRoundCheckButton(
                     isSelected: $category.isSelected,
                     tint: accentColor,
-                    size: 17
+                    size: 19
                 )
 
                 ZStack {
                     Circle()
                         .fill(accentColor.opacity(0.14))
-                        .frame(width: 28, height: 28)
+                        .frame(width: 34, height: 34)
                         .overlay(
                             Circle()
                                 .strokeBorder(accentColor.opacity(0.24), lineWidth: 1)
                         )
 
                     Image(systemName: category.symbol)
-                        .font(.system(size: 12, weight: .medium))
+                        .font(.system(size: 13.5, weight: .medium))
                         .foregroundStyle(accentColor)
                 }
 
                 Text(category.title)
-                    .font(.system(size: 13.5, weight: .medium))
+                    .font(.system(size: 14.5, weight: .medium))
                     .foregroundStyle(category.isSelected ? BathysPalette.textPrimary : BathysPalette.textSecondary)
                     .lineLimit(1)
 
@@ -1781,8 +1876,8 @@ struct SpaciousCategoryCard: View {
                     }
                 }
             }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 8)
+            .padding(.horizontal, 16)
+            .padding(.vertical, 11)
             .contentShape(Rectangle())
             .help(category.subtitle)
             .onTapGesture {
