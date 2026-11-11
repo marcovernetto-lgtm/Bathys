@@ -391,37 +391,37 @@ final class Scanner {
         categories = [
             .init(
                 id: "caches",
-                title: "Cache Utente, Browser & App",
-                titleEN: "User, Browser & App Caches",
-                subtitle: "Svuota le cache di Safari, Chrome, Arc e app preservando le cartelle di sistema",
-                subtitleEN: "Clear Safari, Chrome, Arc, and app caches while preserving system folders",
+                title: "Cache e browser",
+                titleEN: "Caches & browsers",
+                subtitle: "File che app e browser salvano per andare più veloci. Si ricreano da soli.",
+                subtitleEN: "Files apps and browsers keep to run faster. They rebuild themselves.",
                 symbol: "archivebox.fill",
                 urls: cachesURLs
             ),
             .init(
                 id: "appcaches",
-                title: "Cache delle App Installate",
-                titleEN: "Installed App Caches",
-                subtitle: "After Effects, Premiere, DaVinci Resolve, app Electron e sandbox • Mai con l'app aperta",
-                subtitleEN: "After Effects, Premiere, DaVinci Resolve, Electron and sandboxed apps • Never while the app is open",
+                title: "Cache delle app",
+                titleEN: "App caches",
+                subtitle: "Cache di After Effects, Premiere, DaVinci Resolve e altre app. Mai toccate se l'app è aperta.",
+                subtitleEN: "Caches of After Effects, Premiere, DaVinci Resolve and other apps. Never touched while the app is open.",
                 symbol: "square.stack.3d.up.fill",
                 urls: [lib.appendingPathComponent("Application Support")]
             ),
             .init(
                 id: "temp",
-                title: "File Temporanei & Cache Darwin (C / T)",
-                titleEN: "Temporary Files & Darwin Cache (C / T)",
-                subtitle: "Pulisce il contenuto di /var/folders/T e C (es. .aac orfani) senza toccare 0, C, T, X",
-                subtitleEN: "Clean /var/folders/T and C contents (e.g. orphaned .aac) without touching 0, C, T, X",
+                title: "File temporanei",
+                titleEN: "Temporary files",
+                subtitle: "File di lavoro lasciati dalle app e non più usati da almeno mezz'ora.",
+                subtitleEN: "Scratch files left by apps and unused for at least half an hour.",
                 symbol: "clock.arrow.circlepath",
                 urls: [tempRoot, cacheDarwinRoot]
             ),
             .init(
                 id: "dev",
-                title: "Cache Sviluppo (Node, Cargo, Brew, Pip, Gradle)",
-                titleEN: "Developer Caches (Node, Cargo, Brew, Pip, Gradle)",
-                subtitle: "Pacchetti scaricati da npm, pnpm, bun, Rust Cargo, Homebrew e Python",
-                subtitleEN: "Cached packages from npm, pnpm, bun, Rust Cargo, Homebrew, and Python",
+                title: "Strumenti di sviluppo",
+                titleEN: "Developer tools",
+                subtitle: "Pacchetti scaricati da strumenti come npm, Homebrew e Python. Si riscaricano quando servono.",
+                subtitleEN: "Packages downloaded by tools like npm, Homebrew and Python. They download again when needed.",
                 symbol: "terminal.fill",
                 urls: [
                     home.appendingPathComponent(".npm/_cacache"),
@@ -436,10 +436,10 @@ final class Scanner {
             ),
             .init(
                 id: "xcode",
-                title: "Artefatti Xcode, DerivedData & Simulatori",
-                titleEN: "Xcode Artifacts, DerivedData & Simulators",
-                subtitle: "Build intermedi, simboli di debug iOS/macOS e cache CoreSimulator",
-                subtitleEN: "Intermediate builds, iOS/macOS debug symbols, and CoreSimulator caches",
+                title: "Xcode",
+                titleEN: "Xcode",
+                subtitle: "File di compilazione e simulatori di Xcode. Xcode li ricrea quando servono.",
+                subtitleEN: "Xcode build files and simulator caches. Xcode recreates them when needed.",
                 symbol: "hammer.fill",
                 urls: [
                     lib.appendingPathComponent("Developer/Xcode/DerivedData"),
@@ -451,19 +451,19 @@ final class Scanner {
             ),
             .init(
                 id: "logs",
-                title: "Log di Sistema & Crash Report",
-                titleEN: "System Logs & Crash Reports",
-                subtitle: "Registri diagnostici obsoleti, report di crash e telemetria locale",
-                subtitleEN: "Outdated diagnostic logs, crash reports, and local telemetry",
+                title: "Registri e crash",
+                titleEN: "Logs & crash reports",
+                subtitle: "Registri di sistema e rapporti di crash vecchi.",
+                subtitleEN: "Old system logs and crash reports.",
                 symbol: "doc.text.fill",
                 urls: logsURLs
             ),
             .init(
                 id: "orphans",
-                title: "Stati Sospesi & Cache WebKit/HTTP",
-                titleEN: "Saved States & WebKit/HTTP Caches",
-                subtitle: "Stati finestre salvati, storage HTTP e cache WebKit rigenerabili",
-                subtitleEN: "Saved window states, HTTP storage, and regenerable WebKit caches",
+                title: "Stati delle finestre",
+                titleEN: "Window states",
+                subtitle: "Posizioni salvate delle finestre e dati web temporanei.",
+                subtitleEN: "Saved window positions and temporary web data.",
                 symbol: "puzzlepiece.extension.fill",
                 urls: [
                     lib.appendingPathComponent("Saved Application State"),
@@ -473,10 +473,10 @@ final class Scanner {
             ),
             .init(
                 id: "trash",
-                title: "Cestino di macOS",
-                titleEN: "macOS Trash",
-                subtitle: "File già eliminati dall'utente in attesa di rimozione definitiva",
-                subtitleEN: "Previously deleted user files awaiting permanent removal",
+                title: "Cestino",
+                titleEN: "Trash",
+                subtitle: "Svuota il Cestino. Questa operazione è definitiva.",
+                subtitleEN: "Empties the Trash. This cannot be undone.",
                 symbol: "trash.fill",
                 urls: [home.appendingPathComponent(".Trash")]
             )

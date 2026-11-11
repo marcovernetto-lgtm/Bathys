@@ -1350,13 +1350,13 @@ struct DeepCleanModuleView: View {
             ZStack {
                 if scanner.isScanning {
                     scanningProgressBody
-                        .transition(.opacity.combined(with: .scale(scale: 0.98)))
+                        .transition(.blurFade)
                 } else if scanner.hasScanned {
                     scannedResultsBody
-                        .transition(.opacity.combined(with: .scale(scale: 0.98)))
+                        .transition(.blurFade)
                 } else {
                     preScanHeroBody
-                        .transition(.opacity.combined(with: .scale(scale: 0.98)))
+                        .transition(.blurFade)
                 }
             }
             .animation(.spring(response: 0.34, dampingFraction: 0.84), value: scanner.isScanning)
@@ -1404,15 +1404,10 @@ struct DeepCleanModuleView: View {
                         .foregroundStyle(BathysPalette.textPrimary)
                         .lineLimit(1)
 
-                    Text(L10n.lang == .italian
-                         ? "Seleziona le aree da ispezionare. Nessun file viene rimosso senza conferma."
-                         : "Select the areas to inspect. No files are removed without confirmation.")
-                        .font(.system(size: 12.5, weight: .regular))
-                        .foregroundStyle(BathysPalette.textSecondary)
-                        .fixedSize(horizontal: false, vertical: true)
-
                     ProtectedAppsIndicator(scanner: scanner)
-                        .padding(.top, 3)
+                        .help(L10n.lang == .italian
+                              ? "Nessun file viene rimosso senza la tua conferma. I file delle app aperte non vengono mai toccati."
+                              : "Nothing is removed without your confirmation. Files of open apps are never touched.")
                 }
 
                 Spacer()
@@ -1440,6 +1435,7 @@ struct DeepCleanModuleView: View {
                 VStack(spacing: 5) {
                     ForEach($scanner.categories) { $cat in
                         SpaciousCategoryCard(category: $cat, hasScanned: false)
+                            .blurReveal(delay: Double(scanner.categories.firstIndex { $0.id == cat.id } ?? 0) * 0.045)
                     }
                 }
                 .padding(.horizontal, 52)
@@ -1490,12 +1486,7 @@ struct DeepCleanModuleView: View {
                     .animation(.spring(response: 0.28, dampingFraction: 0.82), value: scanner.selectedBytes)
                     .foregroundStyle(BathysPalette.textPrimary)
 
-                Text(scanner.currentPath.isEmpty ? "Controllo cartelle di sistema…" : scanner.currentPath)
-                    .font(.system(size: 12.5, weight: .regular, design: .monospaced))
-                    .foregroundStyle(BathysPalette.textTertiary)
-                    .lineLimit(1)
-                    .truncationMode(.middle)
-                    .frame(maxWidth: 480, alignment: .leading)
+
             }
             .padding(.bottom, 28)
 
@@ -1536,10 +1527,6 @@ struct DeepCleanModuleView: View {
                             Text("\(L10n.cleanupComplete) • \(ByteCountFormatter.string(fromByteCount: scanner.lastCleanedBytes, countStyle: .file))")
                                 .font(.system(size: 13, weight: .medium))
                                 .foregroundStyle(BathysPalette.emerald)
-                        } else {
-                            Text(L10n.lang == .italian ? "Risultati della scansione" : "Scan Results")
-                                .font(.system(size: 13, weight: .medium))
-                                .foregroundStyle(BathysPalette.textSecondary)
                         }
 
                         ProtectedAppsIndicator(scanner: scanner)
@@ -1553,7 +1540,7 @@ struct DeepCleanModuleView: View {
                             .animation(.spring(response: 0.28, dampingFraction: 0.82), value: scanner.selectedBytes)
                             .foregroundStyle(BathysPalette.textPrimary)
 
-                        Text(L10n.readyForCleanup)
+                        Text(L10n.lang == .italian ? "da liberare" : "to free up")
                             .font(.system(size: 15, weight: .regular))
                             .foregroundStyle(BathysPalette.textSecondary)
                     }
@@ -1586,6 +1573,7 @@ struct DeepCleanModuleView: View {
                     ForEach($scanner.categories) { $cat in
                         if cat.bytes > 0 || scanner.categories.allSatisfy({ $0.bytes == 0 }) {
                             SpaciousCategoryCard(category: $cat, hasScanned: true)
+                                .blurReveal(delay: Double(scanner.categories.firstIndex { $0.id == cat.id } ?? 0) * 0.045)
                         }
                     }
                 }
@@ -1616,6 +1604,46 @@ struct DeepCleanModuleView: View {
             .padding(.top, 6)
             .padding(.bottom, 14)
         }
+    }
+}
+
+// MARK: - Comparsa con sfocatura animata
+
+/// Fa comparire un elemento passando da sfocato e trasparente a nitido (rispetta "Riduci movimento")
+struct BlurReveal: ViewModifier {
+    var delay: Double = 0
+    @State private var shown = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    func body(content: Content) -> some View {
+        let visible = shown || reduceMotion
+        content
+            .blur(radius: visible ? 0 : 8)
+            .opacity(visible ? 1 : 0)
+            .offset(y: visible ? 0 : 6)
+            .onAppear {
+                withAnimation(.easeOut(duration: 0.45).delay(delay)) { shown = true }
+            }
+    }
+}
+
+private struct BlurFadeModifier: ViewModifier {
+    let radius: CGFloat
+    let opacity: Double
+
+    func body(content: Content) -> some View {
+        content.blur(radius: radius).opacity(opacity)
+    }
+}
+
+extension View {
+    func blurReveal(delay: Double = 0) -> some View { modifier(BlurReveal(delay: delay)) }
+}
+
+extension AnyTransition {
+    /// Passaggio tra stati con dissolvenza sfocata
+    static var blurFade: AnyTransition {
+        .modifier(active: BlurFadeModifier(radius: 12, opacity: 0), identity: BlurFadeModifier(radius: 0, opacity: 1))
     }
 }
 
@@ -1663,8 +1691,8 @@ struct ProtectedAppsIndicator: View {
                     .frame(width: 5, height: 5)
                     .shadow(color: BathysPalette.emerald.opacity(0.8), radius: 3, x: 0, y: 0)
                 Text(L10n.lang == .italian
-                     ? (apps.count == 1 ? "1 app aperta protetta" : "\(apps.count) app aperte protette")
-                     : (apps.count == 1 ? "1 open app protected" : "\(apps.count) open apps protected"))
+                     ? "\(apps.count) app protette"
+                     : "\(apps.count) apps protected")
                     .font(.system(size: 11.5, weight: .medium))
                     .foregroundStyle(isHovered ? BathysPalette.textPrimary : BathysPalette.textSecondary)
                     .lineLimit(1)
@@ -1719,30 +1747,15 @@ struct SpaciousCategoryCard: View {
                         .foregroundStyle(accentColor)
                 }
 
-                VStack(alignment: .leading, spacing: 1) {
-                    Text(category.title)
-                        .font(.system(size: 13, weight: .medium))
-                        .foregroundStyle(category.isSelected ? BathysPalette.textPrimary : BathysPalette.textSecondary)
-
-                    Text(category.subtitle)
-                        .font(.system(size: 11, weight: .regular))
-                        .foregroundStyle(BathysPalette.textTertiary)
-                        .lineLimit(1)
-                        .help(category.subtitle)
-                }
+                Text(category.title)
+                    .font(.system(size: 13.5, weight: .medium))
+                    .foregroundStyle(category.isSelected ? BathysPalette.textPrimary : BathysPalette.textSecondary)
+                    .lineLimit(1)
 
                 Spacer(minLength: 12)
 
                 if !hasScanned {
-                    Text(category.isSelected
-                         ? (L10n.lang == .italian ? "Incluso" : "Included")
-                         : (L10n.lang == .italian ? "Escluso" : "Skipped"))
-                        .font(.system(size: 11.5, weight: .medium))
-                        .foregroundStyle(category.isSelected ? BathysPalette.textSecondary : BathysPalette.textTertiary)
-                        .padding(.horizontal, 9)
-                        .padding(.vertical, 3)
-                        .background(Capsule().fill(Color.white.opacity(0.04)))
-                        .overlay(Capsule().strokeBorder(BathysPalette.hairline, lineWidth: 1))
+                    EmptyView()
                 } else if category.bytes > 0 {
                     Text(ByteCountFormatter.string(fromByteCount: category.selectedBytes, countStyle: .file))
                         .font(.system(size: 13.5, weight: .medium))
@@ -1769,8 +1782,9 @@ struct SpaciousCategoryCard: View {
                 }
             }
             .padding(.horizontal, 12)
-            .padding(.vertical, 6)
+            .padding(.vertical, 8)
             .contentShape(Rectangle())
+            .help(category.subtitle)
             .onTapGesture {
                 if hasScanned && !category.topItems.isEmpty {
                     withAnimation(.spring(response: 0.26, dampingFraction: 0.80)) {
@@ -1799,12 +1813,7 @@ struct SpaciousCategoryCard: View {
                                     .foregroundStyle(item.isSelected ? BathysPalette.textSecondary : BathysPalette.textTertiary)
                                     .lineLimit(1)
 
-                                if let safetyNote = item.safetyNote {
-                                    Text(safetyNote)
-                                        .font(.system(size: 10.5, weight: .regular))
-                                        .foregroundStyle(BathysPalette.textTertiary)
-                                        .lineLimit(1)
-                                }
+
                             }
 
                             Spacer()
@@ -1826,6 +1835,7 @@ struct SpaciousCategoryCard: View {
                         }
                         .padding(.horizontal, 12)
                         .padding(.vertical, 5)
+                        .help(item.safetyNote ?? item.path)
                     }
                 }
                 .padding(.leading, 40)
