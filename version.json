@@ -1,10 +1,10 @@
 {
-  "version": "1.0.4",
-  "build": 5,
-  "releaseDate": "2026-10-20",
+  "version": "1.0.5",
+  "build": 6,
+  "releaseDate": "2026-11-12",
   "notes": {
-    "it": "Apertura immediata e diretta delle Impostazioni di Sistema per l'Accesso Completo al Disco.",
-    "en": "Direct and reliable opening of System Settings for Full Disk Access."
+    "it": "Interfaccia più semplice e vivace, Sonar con radar a tutta finestra, pulizia delle cache di After Effects, DaVinci Resolve e altre app, disinstallazione più sicura e molte correzioni.",
+    "en": "Simpler, livelier interface, full-window Sonar radar, cleanup of After Effects, DaVinci Resolve and other app caches, safer uninstalls and many fixes."
   },
   "downloads": {
     "universal": "https://raw.githubusercontent.com/marcovernetto-lgtm/Bathys/main/installers/Bathys-Universal-Intel-AppleSilicon.dmg",
