@@ -1489,28 +1489,31 @@ struct DeepCleanModuleView: View {
                         .foregroundStyle(BathysPalette.textPrimary)
                         .lineLimit(1)
 
-                    ProtectedAppsIndicator(scanner: scanner)
-                        .help(L10n.lang == .italian
-                              ? "Nessun file viene rimosso senza la tua conferma. I file delle app aperte non vengono mai toccati."
-                              : "Nothing is removed without your confirmation. Files of open apps are never touched.")
                 }
 
                 Spacer()
 
-                let allSelected = scanner.categories.allSatisfy { $0.isSelected }
-                Button {
-                    let target = !allSelected
-                    withAnimation(.spring(response: 0.24, dampingFraction: 0.75)) {
-                        for i in scanner.categories.indices {
-                            scanner.categories[i].isSelected = target
+                // A destra: app protette e selezione, con respiro
+                VStack(alignment: .trailing, spacing: 12) {
+                    ProtectedAppsIndicator(scanner: scanner)
+                        .help(L10n.lang == .italian
+                              ? "Nessun file viene rimosso senza la tua conferma. I file delle app aperte non vengono mai toccati."
+                              : "Nothing is removed without your confirmation. Files of open apps are never touched.")
+                    let allSelected = scanner.categories.allSatisfy { $0.isSelected }
+                    Button {
+                        let target = !allSelected
+                        withAnimation(.spring(response: 0.24, dampingFraction: 0.75)) {
+                            for i in scanner.categories.indices {
+                                scanner.categories[i].isSelected = target
+                            }
                         }
+                    } label: {
+                        Text(allSelected ? L10n.deselectAll : L10n.selectAll)
+                            .font(.system(size: 12.5, weight: .medium))
+                            .foregroundStyle(BathysPalette.sky)
                     }
-                } label: {
-                    Text(allSelected ? L10n.deselectAll : L10n.selectAll)
-                        .font(.system(size: 12.5, weight: .medium))
-                        .foregroundStyle(BathysPalette.sky)
+                    .buttonStyle(.plain)
                 }
-                .buttonStyle(.plain)
             }
             .padding(.horizontal, 52)
             .padding(.top, 20)
@@ -1615,8 +1618,6 @@ struct DeepCleanModuleView: View {
                                 .font(.system(size: 13, weight: .medium))
                                 .foregroundStyle(BathysPalette.emerald)
                         }
-
-                        ProtectedAppsIndicator(scanner: scanner)
                     }
 
                     HStack(alignment: .firstTextBaseline, spacing: 10) {
@@ -1635,20 +1636,27 @@ struct DeepCleanModuleView: View {
 
                 Spacer()
 
-                let allSelected = scanner.categories.allSatisfy { $0.isSelected }
-                Button {
-                    let target = !allSelected
-                    withAnimation(.spring(response: 0.24, dampingFraction: 0.75)) {
-                        for i in scanner.categories.indices {
-                            scanner.categories[i].isSelected = target
+                // A destra: app protette e selezione, con respiro
+                VStack(alignment: .trailing, spacing: 12) {
+                    ProtectedAppsIndicator(scanner: scanner)
+                        .help(L10n.lang == .italian
+                              ? "Nessun file viene rimosso senza la tua conferma. I file delle app aperte non vengono mai toccati."
+                              : "Nothing is removed without your confirmation. Files of open apps are never touched.")
+                    let allSelected = scanner.categories.allSatisfy { $0.isSelected }
+                    Button {
+                        let target = !allSelected
+                        withAnimation(.spring(response: 0.24, dampingFraction: 0.75)) {
+                            for i in scanner.categories.indices {
+                                scanner.categories[i].isSelected = target
+                            }
                         }
+                    } label: {
+                        Text(allSelected ? L10n.deselectAll : L10n.selectAll)
+                            .font(.system(size: 13, weight: .medium))
+                            .foregroundStyle(BathysPalette.sky)
                     }
-                } label: {
-                    Text(allSelected ? L10n.deselectAll : L10n.selectAll)
-                        .font(.system(size: 13, weight: .medium))
-                        .foregroundStyle(BathysPalette.sky)
+                    .buttonStyle(.plain)
                 }
-                .buttonStyle(.plain)
             }
             .padding(.horizontal, 52)
             .padding(.top, 18)
@@ -1666,9 +1674,17 @@ struct DeepCleanModuleView: View {
                     }
                 }
                 .padding(.horizontal, 52)
-                .padding(.vertical, 2)
+                .padding(.top, 2)
+                .padding(.bottom, 18)
                 .frame(minHeight: geo.size.height, alignment: .center)
             }
+            .mask(
+                VStack(spacing: 0) {
+                    Rectangle()
+                    LinearGradient(colors: [.black, .clear], startPoint: .top, endPoint: .bottom)
+                        .frame(height: 22)
+                }
+            )
             }
 
             // Bottom Action Bar with Breathing Room
@@ -1745,9 +1761,9 @@ struct ProtectedAppsIndicator: View {
         let apps = scanner.protectedRunningApps
         let shown = Array(apps.prefix(5))
 
-        HStack(spacing: 8) {
+        HStack(spacing: 12) {
             // Pila di icone come nel Dock: le app che Bathys non toccherà
-            HStack(spacing: 3) {
+            HStack(spacing: 6) {
                 ForEach(Array(shown.enumerated()), id: \.offset) { index, app in
                     Group {
                         if let icon = app.icon {
@@ -1759,7 +1775,7 @@ struct ProtectedAppsIndicator: View {
                                 .foregroundStyle(BathysPalette.textTertiary)
                         }
                     }
-                    .frame(width: 16, height: 16)
+                    .frame(width: 20, height: 20)
                     .offset(y: isHovered ? -1 : 0)
                 }
                 if apps.count > shown.count {
@@ -1781,7 +1797,7 @@ struct ProtectedAppsIndicator: View {
                 Text(L10n.lang == .italian
                      ? "\(apps.count) app protette"
                      : "\(apps.count) apps protected")
-                    .font(.system(size: 11.5, weight: .medium))
+                    .font(.system(size: 12.5, weight: .medium))
                     .foregroundStyle(isHovered ? BathysPalette.textPrimary : BathysPalette.textSecondary)
                     .lineLimit(1)
                     .fixedSize()
