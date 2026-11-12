@@ -236,8 +236,6 @@ struct ContentView: View {
 
     private var homeGridHub: some View {
         VStack(alignment: .center, spacing: 0) {
-            Spacer(minLength: 0)
-
             // 1. Hero Brand Zone — Positioned higher up with completely open sky above it
             VStack(alignment: .center, spacing: 10) {
                 BathysAsset.image(named: "bathys_periscope_logo")
@@ -248,11 +246,12 @@ struct ContentView: View {
 
             }
             .frame(maxWidth: .infinity)
-            .padding(.top, 6)
-            .padding(.bottom, 26)
+            .padding(.top, 26)
             .onAppear {
                 optimizer.refreshTelemetry()
             }
+
+            Spacer(minLength: 28)
 
             // 2. Symmetrical 2x2 Grid (Centered & Enlarged Minimal Icons)
             VStack(spacing: 18) {
@@ -279,7 +278,10 @@ struct ContentView: View {
                 }
             }
 
-            Spacer(minLength: 20)
+            Spacer(minLength: 28)
+
+            GradientDivider()
+                .padding(.bottom, 18)
 
             // 3. Unified Bottom Bar: Telemetry + Privacy & Permissions + Settings Gear
             HStack(spacing: 10) {
@@ -575,34 +577,16 @@ struct HomeModuleCard: View {
             }
             .frame(maxWidth: .infinity, minHeight: 192, maxHeight: 192)
             .background(
-                RoundedRectangle(cornerRadius: 18, style: .continuous)
-                    .fill(
-                        LinearGradient(
-                            colors: [
-                                isHovered ? Color.white.opacity(0.088) : Color.white.opacity(0.048),
-                                isHovered ? Color.white.opacity(0.052) : Color.white.opacity(0.028)
-                            ],
-                            startPoint: .top,
-                            endPoint: .bottom
-                        )
-                    )
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: 18, style: .continuous)
-                    .strokeBorder(
-                        LinearGradient(
-                            colors: [
-                                isHovered ? Color.white.opacity(0.24) : Color.white.opacity(0.09),
-                                isHovered ? tintColor.opacity(0.32) : Color.white.opacity(0.04)
-                            ],
-                            startPoint: .topLeading,
-                            endPoint: .bottomTrailing
-                        ),
-                        lineWidth: 1.0
-                    )
+                TintedSurface(
+                    tint: tintColor,
+                    cornerRadius: 18,
+                    isActive: true,
+                    isHovered: isHovered,
+                    strength: isHovered ? 1.1 : 0.6
+                )
             )
             .shadow(
-                color: Color.black.opacity(isHovered ? 0.42 : 0.20),
+                color: Color.black.opacity(isHovered ? 0.40 : 0.22),
                 radius: isHovered ? 16 : 8,
                 x: 0,
                 y: isHovered ? 8 : 4
@@ -1493,31 +1477,14 @@ struct DeepCleanModuleView: View {
 
                 Spacer()
 
-                // A destra: app protette e selezione, con respiro
-                VStack(alignment: .trailing, spacing: 12) {
-                    ProtectedAppsIndicator(scanner: scanner)
-                        .help(L10n.lang == .italian
-                              ? "Nessun file viene rimosso senza la tua conferma. I file delle app aperte non vengono mai toccati."
-                              : "Nothing is removed without your confirmation. Files of open apps are never touched.")
-                    let allSelected = scanner.categories.allSatisfy { $0.isSelected }
-                    Button {
-                        let target = !allSelected
-                        withAnimation(.spring(response: 0.24, dampingFraction: 0.75)) {
-                            for i in scanner.categories.indices {
-                                scanner.categories[i].isSelected = target
-                            }
-                        }
-                    } label: {
-                        Text(allSelected ? L10n.deselectAll : L10n.selectAll)
-                            .font(.system(size: 12.5, weight: .medium))
-                            .foregroundStyle(BathysPalette.sky)
-                    }
-                    .buttonStyle(.plain)
-                }
+                HeaderTrailingControls(scanner: scanner)
             }
             .padding(.horizontal, 52)
             .padding(.top, 20)
-            .padding(.bottom, 20)
+            .padding(.bottom, 18)
+
+            GradientDivider()
+                .padding(.horizontal, 52)
 
             Spacer(minLength: 0)
 
@@ -1636,31 +1603,15 @@ struct DeepCleanModuleView: View {
 
                 Spacer()
 
-                // A destra: app protette e selezione, con respiro
-                VStack(alignment: .trailing, spacing: 12) {
-                    ProtectedAppsIndicator(scanner: scanner)
-                        .help(L10n.lang == .italian
-                              ? "Nessun file viene rimosso senza la tua conferma. I file delle app aperte non vengono mai toccati."
-                              : "Nothing is removed without your confirmation. Files of open apps are never touched.")
-                    let allSelected = scanner.categories.allSatisfy { $0.isSelected }
-                    Button {
-                        let target = !allSelected
-                        withAnimation(.spring(response: 0.24, dampingFraction: 0.75)) {
-                            for i in scanner.categories.indices {
-                                scanner.categories[i].isSelected = target
-                            }
-                        }
-                    } label: {
-                        Text(allSelected ? L10n.deselectAll : L10n.selectAll)
-                            .font(.system(size: 13, weight: .medium))
-                            .foregroundStyle(BathysPalette.sky)
-                    }
-                    .buttonStyle(.plain)
-                }
+                HeaderTrailingControls(scanner: scanner)
             }
             .padding(.horizontal, 52)
             .padding(.top, 18)
-            .padding(.bottom, 14)
+            .padding(.bottom, 16)
+
+            GradientDivider()
+                .padding(.horizontal, 52)
+                .padding(.bottom, 6)
 
             // Clean Category List (Fits non-zero categories cleanly with breathing room)
             GeometryReader { geo in
@@ -1707,6 +1658,56 @@ struct DeepCleanModuleView: View {
             }
             .padding(.top, 12)
             .padding(.bottom, 22)
+        }
+    }
+}
+
+// MARK: - Linea separatrice sfumata
+
+/// Filo sottile che sfuma ai lati: separa le zone senza appesantire
+struct GradientDivider: View {
+    var opacity: Double = 0.12
+
+    var body: some View {
+        LinearGradient(
+            colors: [Color.white.opacity(0), Color.white.opacity(opacity), Color.white.opacity(0)],
+            startPoint: .leading,
+            endPoint: .trailing
+        )
+        .frame(height: 1)
+        .allowsHitTesting(false)
+    }
+}
+
+/// Colonna destra delle intestazioni: app protette | seleziona tutto, sulla stessa linea di base
+struct HeaderTrailingControls: View {
+    @Bindable var scanner: Scanner
+    var fontSize: CGFloat = 13
+
+    var body: some View {
+        let allSelected = scanner.categories.allSatisfy { $0.isSelected }
+        HStack(alignment: .firstTextBaseline, spacing: 14) {
+            ProtectedAppsIndicator(scanner: scanner)
+                .help(L10n.lang == .italian
+                      ? "Nessun file viene rimosso senza la tua conferma. I file delle app aperte non vengono mai toccati."
+                      : "Nothing is removed without your confirmation. Files of open apps are never touched.")
+            Rectangle()
+                .fill(Color.white.opacity(0.14))
+                .frame(width: 1, height: 16)
+                .alignmentGuide(.firstTextBaseline) { d in d[.bottom] - 3 }
+            Button {
+                let target = !allSelected
+                withAnimation(.spring(response: 0.24, dampingFraction: 0.75)) {
+                    for i in scanner.categories.indices {
+                        scanner.categories[i].isSelected = target
+                    }
+                }
+            } label: {
+                Text(allSelected ? L10n.deselectAll : L10n.selectAll)
+                    .font(.system(size: fontSize, weight: .medium))
+                    .foregroundStyle(BathysPalette.sky)
+            }
+            .buttonStyle(.plain)
         }
     }
 }
@@ -2298,11 +2299,20 @@ struct DynamicDivingSubmarine: View {
                     .position(x: 175 * 0.5 + 75, y: 140 * 0.5 + 12)
                     .opacity(bubblesAlpha)
 
-                BathysAsset.image(named: "submarine_yellow")
+                // Scafo senza elica + elica animata (come in Prestazioni): gira piano a riposo,
+                // accelera durante scansione, pulizia e risalita
+                BathysAsset.image(named: "submarine_hull")
                     .resizable()
                     .aspectRatio(contentMode: .fit)
                     .frame(width: 175, height: 140)
                     .shadow(color: Color.black.opacity(0.35), radius: 12, y: 8)
+
+                HighSpeedPropellerView(
+                    time: time,
+                    speedFactor: (isScanning || isCleaning || isResurfacing) ? 1.2 : 0.8,
+                    isTurbo: isScanning || isCleaning || isResurfacing
+                )
+                .position(x: 175 * 0.5 + 77.0, y: 140 * 0.5 + 24.5)
             }
             .frame(width: 175, height: 140)
             .rotationEffect(.degrees(currentPitch))
