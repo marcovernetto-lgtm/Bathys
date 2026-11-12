@@ -45,40 +45,40 @@ final class OptimizerEngine {
     var tasks: [OptimizationTaskItem] = [
         .init(
             id: "quicklook",
-            titleIT: "Rigenera anteprime QuickLook e icone Finder",
-            titleEN: "Rebuild QuickLook Previews & Finder Icons",
+            titleIT: "Anteprime dei file",
+            titleEN: "File previews",
             subtitleIT: "Ripristina le miniature dei file bloccate o non aggiornate",
             subtitleEN: "Resets stuck or outdated file thumbnails across Finder",
             symbol: "eye"
         ),
         .init(
             id: "dns",
-            titleIT: "Svuota cache DNS locale",
-            titleEN: "Flush Local DNS Cache",
+            titleIT: "Connessione di rete",
+            titleEN: "Network connection",
             subtitleIT: "Aggiorna la risoluzione dei domini e velocizza le connessioni di rete",
             subtitleEN: "Refreshes domain resolution and speeds up network lookups",
             symbol: "network"
         ),
         .init(
             id: "savedstate",
-            titleIT: "Pulisci stati finestre obsoleti",
-            titleEN: "Purge Stale Window States",
+            titleIT: "Finestre dimenticate",
+            titleEN: "Forgotten windows",
             subtitleIT: "Rimuove i salvataggi automatici delle finestre più vecchi di 30 giorni",
             subtitleEN: "Removes saved application window states older than 30 days",
             symbol: "macwindow"
         ),
         .init(
             id: "dsstore",
-            titleIT: "Rimuovi file di vista .DS_Store",
-            titleEN: "Clean .DS_Store View Files",
+            titleIT: "Ordine delle cartelle",
+            titleEN: "Folder views",
             subtitleIT: "Ripristina l'ordine di visualizzazione nelle cartelle Download e Documenti",
             subtitleEN: "Resets folder view metadata in Downloads, Documents, and Desktop",
             symbol: "square.grid.2x2"
         ),
         .init(
             id: "brokenplist",
-            titleIT: "Ripara file di preferenze danneggiati",
-            titleEN: "Repair Corrupted Preference Files",
+            titleIT: "Impostazioni danneggiate",
+            titleEN: "Damaged settings",
             subtitleIT: "Individua e rimuove i file di configurazione vuoti o corrotti",
             subtitleEN: "Finds and removes 0-byte or malformed .plist preference files",
             symbol: "wrench.and.screwdriver"
@@ -160,22 +160,17 @@ final class OptimizerEngine {
         }
     }
 
-    func removeLaunchAgent(_ agent: LaunchAgentItem) {
+    /// Scarica l'agente da launchd (solo agenti utente) e sposta il suo plist nel Cestino.
+    /// Restituisce false se il file non è stato rimosso (es. permessi insufficienti).
+    @discardableResult
+    func removeLaunchAgent(_ agent: LaunchAgentItem) -> Bool {
         let url = URL(fileURLWithPath: agent.plistPath)
-        let fm = FileManager.default
-        if let sandbox = MacSafetyIntelligence.sandboxRootURL {
-            let sbPath = (sandbox.path as NSString).standardizingPath
-            let targetPath = (url.path as NSString).standardizingPath
-            guard targetPath.hasPrefix(sbPath + "/") else { return }
-            if (try? fm.removeItem(at: url)) != nil {
-                launchAgents.removeAll { $0.id == agent.id }
-            }
-            return
+        if agent.isUserAgent {
+            UninstallerEngine.unloadUserLaunchAgentIfNeeded(at: url)
         }
-        do {
-            try fm.trashItem(at: url, resultingItemURL: nil)
-            launchAgents.removeAll { $0.id == agent.id }
-        } catch {}
+        guard SafeFileOps.moveToTrash(url) else { return false }
+        launchAgents.removeAll { $0.id == agent.id }
+        return true
     }
 
     func runSelectedOptimizations() {
@@ -187,12 +182,13 @@ final class OptimizerEngine {
                 tasks[i].status = .running
                 let taskId = tasks[i].id
 
+                let english = AppSettings.shared.language == .english
                 let outcome = await Task.detached(priority: .userInitiated) {
-                    OptimizerEngine.executeTask(id: taskId)
+                    OptimizerEngine.executeTask(id: taskId, english: english)
                 }.value
 
                 try? await Task.sleep(for: .milliseconds(350))
-                tasks[i].status = .completed(outcome)
+                tasks[i].status = outcome.success ? .completed(outcome.message) : .failed(outcome.message)
             }
 
             refreshTelemetry()
@@ -203,53 +199,60 @@ final class OptimizerEngine {
 
     // MARK: - Task Handlers (Native macOS Optimization Routines)
 
-    nonisolated static func executeTask(id: String) -> String {
+    struct TaskOutcome: Sendable {
+        let success: Bool
+        let message: String
+    }
+
+    nonisolated static func executeTask(id: String, english: Bool = false) -> TaskOutcome {
+        func ok(_ it: String, _ en: String) -> TaskOutcome { TaskOutcome(success: true, message: english ? en : it) }
+        func fail(_ it: String, _ en: String) -> TaskOutcome { TaskOutcome(success: false, message: english ? en : it) }
         let fm = FileManager.default
         let sandbox = MacSafetyIntelligence.sandboxRootURL
         let home = sandbox ?? fm.homeDirectoryForCurrentUser
         let lib = home.appendingPathComponent("Library")
 
         func safeRemoveOrTrash(_ item: URL) -> Bool {
-            if let sb = sandbox {
-                let sbPath = (sb.path as NSString).standardizingPath
-                let targetPath = (item.path as NSString).standardizingPath
-                guard targetPath.hasPrefix(sbPath + "/") else { return false }
-                return (try? fm.removeItem(at: item)) != nil
-            }
-            return (try? fm.trashItem(at: item, resultingItemURL: nil)) != nil
+            SafeFileOps.moveToTrash(item)
         }
 
         switch id {
         case "quicklook":
             if sandbox == nil {
-                let proc = Process()
-                proc.executableURL = URL(fileURLWithPath: "/usr/bin/qlmanage")
-                proc.arguments = ["-r", "cache"]
-                proc.standardOutput = Pipe()
-                proc.standardError = Pipe()
-                try? proc.run()
-                proc.waitUntilExit()
+                let reset = SafeFileOps.runProcess("/usr/bin/qlmanage", ["-r", "cache"], timeout: 30)
+                SafeFileOps.runProcess("/usr/bin/qlmanage", ["-r"], timeout: 30)
+                guard reset?.status == 0 else {
+                    return fail("Impossibile rigenerare la cache miniature", "Could not reset the thumbnail cache")
+                }
             }
-            return "Cache miniature rigenerata"
+            return ok("Cache miniature rigenerata", "Thumbnail cache rebuilt")
 
         case "dns":
             if sandbox == nil {
-                let proc = Process()
-                proc.executableURL = URL(fileURLWithPath: "/usr/bin/dscacheutil")
-                proc.arguments = ["-flushcache"]
-                proc.standardOutput = Pipe()
-                proc.standardError = Pipe()
-                try? proc.run()
-                proc.waitUntilExit()
+                // Il vero svuotamento della cache DNS richiede i privilegi di amministratore (mDNSResponder):
+                // macOS mostra la propria finestra di autenticazione, Bathys non vede mai la password.
+                let script = "do shell script \"/usr/bin/dscacheutil -flushcache; /usr/bin/killall -HUP mDNSResponder\" with administrator privileges"
+                guard let result = SafeFileOps.runProcess("/usr/bin/osascript", ["-e", script], timeout: 120) else {
+                    return fail("Impossibile avviare lo svuotamento DNS", "Could not start the DNS flush")
+                }
+                if result.status != 0 {
+                    return result.output.contains("-128")
+                        ? fail("Annullato dall'utente", "Cancelled by user")
+                        : fail("Svuotamento DNS non riuscito", "DNS flush failed")
+                }
             }
-            return "Cache DNS svuotata"
+            return ok("Cache DNS svuotata", "DNS cache flushed")
 
         case "savedstate":
             let stateDir = lib.appendingPathComponent("Saved Application State")
             var removed = 0
             let cutoff = Date.now.addingTimeInterval(-30 * 24 * 3600)
+            let runningIds = MacSafetyIntelligence.activeRunningBundleIdentifiers()
             if let items = try? fm.contentsOfDirectory(at: stateDir, includingPropertiesForKeys: [.contentModificationDateKey]) {
                 for item in items {
+                    // Mai toccare lo stato di un'app attualmente aperta
+                    let bid = item.lastPathComponent.lowercased().replacingOccurrences(of: ".savedstate", with: "")
+                    if runningIds.contains(bid) { continue }
                     if let mod = (try? item.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate,
                        mod < cutoff {
                         if safeRemoveOrTrash(item) {
@@ -258,7 +261,9 @@ final class OptimizerEngine {
                     }
                 }
             }
-            return removed > 0 ? "\(removed) stati obsoleti rimossi" : "Nessuno stato obsoleto (>30g)"
+            return removed > 0
+                ? ok("\(removed) stati obsoleti rimossi", "\(removed) stale states removed")
+                : ok("Nessuno stato obsoleto (>30g)", "No stale states (>30d)")
 
         case "dsstore":
             let targets = [
@@ -273,14 +278,19 @@ final class OptimizerEngine {
                     removed += 1
                 }
             }
-            return removed > 0 ? "\(removed) file .DS_Store rimossi" : "Cartelle già pulite"
+            return removed > 0
+                ? ok("\(removed) file .DS_Store rimossi", "\(removed) .DS_Store files removed")
+                : ok("Cartelle già pulite", "Folders already clean")
 
         case "brokenplist":
             let prefDir = lib.appendingPathComponent("Preferences")
             var repaired = 0
-            if let items = try? fm.contentsOfDirectory(at: prefDir, includingPropertiesForKeys: [.fileSizeKey]) {
+            if let items = try? fm.contentsOfDirectory(at: prefDir, includingPropertiesForKeys: [.fileSizeKey, .contentModificationDateKey]) {
                 for item in items where item.pathExtension == "plist" {
-                    let size = (try? item.resourceValues(forKeys: [.fileSizeKey]))?.fileSize ?? 0
+                    let values = try? item.resourceValues(forKeys: [.fileSizeKey, .contentModificationDateKey])
+                    // Un plist appena modificato potrebbe essere in fase di scrittura da cfprefsd: non giudicarlo
+                    if let mod = values?.contentModificationDate, Date.now.timeIntervalSince(mod) < 60 { continue }
+                    let size = values?.fileSize ?? 0
                     var isBroken = (size == 0)
                     if !isBroken, let data = try? Data(contentsOf: item, options: .mappedIfSafe) {
                         isBroken = (try? PropertyListSerialization.propertyList(from: data, options: [], format: nil)) == nil
@@ -292,10 +302,12 @@ final class OptimizerEngine {
                     }
                 }
             }
-            return repaired > 0 ? "\(repaired) plist corrotti rimossi" : "Tutti i plist sono integri"
+            return repaired > 0
+                ? ok("\(repaired) plist corrotti rimossi", "\(repaired) corrupted plists removed")
+                : ok("Tutti i plist sono integri", "All plists are valid")
 
         default:
-            return "Completato"
+            return ok("Completato", "Completed")
         }
     }
 

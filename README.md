@@ -9,7 +9,7 @@
 
 Scarica direttamente l'applicazione con un clic:
 
-* 🍏 **[Download Bathys Apple Silicon](https://github.com/marcovernetto-lgtm/Bathys/raw/main/installers/Bathys-Universal-Intel-AppleSilicon.dmg)** (~6.0 MB)
+* 🍏 **[Download Bathys Apple Silicon](https://github.com/marcovernetto-lgtm/Bathys/raw/main/installers/Bathys-Universal-Intel-AppleSilicon.dmg)** (~6.5 MB, v1.0.5)
 * 💻 **[Download Bathys Intel ](https://github.com/marcovernetto-lgtm/Bathys/raw/main/installers/Bathys-Intel-macOS13-Ventura.dmg)** (~4.8 MB)
 
 ---
@@ -40,7 +40,7 @@ Scarica direttamente l'applicazione con un clic:
 
 ## Privacy & Security Manifesto
 
-- **100% On-Device:** Zero telemetry, zero analytics, zero external network requests.
+- **100% On-Device:** Zero telemetry, zero analytics. The only network request is the update check against this repository's `version.json`.
 - **Trash-Only Philosophy:** Bathys **never** runs `rm -rf` permanently without user intervention. All cleaned items are moved safely to the native macOS Trash (`FileManager.default.trashItem`).
 - **Apple Silicon & TCC Native:** Respects macOS Transparency, Consent, and Control (TCC) and Full Disk Access permissions.
 

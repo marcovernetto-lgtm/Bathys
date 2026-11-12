@@ -9,11 +9,12 @@ let package = Package(
             name: "Bathys",
             path: "Sources/Bathys",
             exclude: [
-                "submarine_raw.png"
+                // Immagini sorgente non usate a runtime: escluse dal bundle per non appesantire l'app
+                "submarine_raw.png",
+                "submarine_clean.png"
             ],
             resources: [
-                .copy("Assets"),
-                .copy("submarine_clean.png")
+                .copy("Assets")
             ]
         )
     ]

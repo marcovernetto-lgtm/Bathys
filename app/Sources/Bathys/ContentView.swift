@@ -49,39 +49,20 @@ enum BathysPalette {
 // MARK: - Asset Helper with In-Memory Static Cache
 
 enum BathysAsset {
+    private static let names = [
+        "algae_blue_wavy", "algae_green_mid", "algae_green_tall", "algae_ribbon_center", "algae_teal_small",
+        "coral_orange_anemone", "coral_orange_branch", "coral_purple_fan", "coral_red_fingers",
+        "fish_blue_1", "fish_blue_2", "fish_orange_1", "fish_orange_2", "fish_pink_1", "fish_pink_2",
+        "submarine_yellow", "submarine_hull", "seafloor_sand_bed", "seafloor_sand_foreground",
+        "trash_oil_drum", "trash_tire", "trash_wood_crate", "trash_glass_bottle", "trash_plastic_bottle", "trash_plastic_bag",
+        "bathys_periscope_logo"
+    ]
+
     private static let cache: [String: Image] = {
-        let names = [
-            "algae_blue_wavy", "algae_green_mid", "algae_green_tall", "algae_ribbon_center", "algae_teal_small",
-            "coral_orange_anemone", "coral_orange_branch", "coral_purple_fan", "coral_red_fingers",
-            "fish_blue_1", "fish_blue_2", "fish_orange_1", "fish_orange_2", "fish_pink_1", "fish_pink_2",
-            "submarine_yellow", "submarine_hull", "seafloor_sand_bed", "seafloor_sand_foreground",
-            "trash_oil_drum", "trash_tire", "trash_wood_crate", "trash_glass_bottle", "trash_plastic_bottle", "trash_plastic_bag",
-            "bathys_periscope_logo"
-        ]
         var map: [String: Image] = [:]
         for name in names {
-            var nsImg: NSImage?
-            // 1. Try Bundle.module (SwiftPM target resource bundle)
-            if let bundleUrl = Bundle.module.url(forResource: name, withExtension: "png", subdirectory: "Assets")
-                ?? Bundle.module.url(forResource: name, withExtension: "png") {
-                nsImg = NSImage(contentsOf: bundleUrl)
-            }
-            // 2. Try Bundle.main
-            if nsImg == nil, let mainUrl = Bundle.main.url(forResource: name, withExtension: "png", subdirectory: "Assets")
-                ?? Bundle.main.url(forResource: name, withExtension: "png")
-                ?? Bundle.main.resourceURL?.appendingPathComponent("Assets/\(name).png") {
-                nsImg = NSImage(contentsOf: mainUrl)
-            }
-            // 3. Fallback for live development execution relative to source file
-            if nsImg == nil {
-                let devUrl = URL(fileURLWithPath: #filePath)
-                    .deletingLastPathComponent()
-                    .appendingPathComponent("Assets/\(name).png")
-                if FileManager.default.fileExists(atPath: devUrl.path) {
-                    nsImg = NSImage(contentsOf: devUrl)
-                }
-            }
-            if let img = nsImg {
+            if let url = ResourceLocator.url(forResource: name, withExtension: "png"),
+               let img = NSImage(contentsOf: url) {
                 map[name] = Image(nsImage: img)
             }
         }
@@ -92,22 +73,8 @@ enum BathysAsset {
         if let cached = cache[name] {
             return cached
         }
-        // Fallback dinamico immediato
-        if let bundleUrl = Bundle.module.url(forResource: name, withExtension: "png", subdirectory: "Assets")
-            ?? Bundle.module.url(forResource: name, withExtension: "png"),
-           let img = NSImage(contentsOf: bundleUrl) {
-            return Image(nsImage: img)
-        }
-        if let mainUrl = Bundle.main.url(forResource: name, withExtension: "png", subdirectory: "Assets")
-            ?? Bundle.main.url(forResource: name, withExtension: "png")
-            ?? Bundle.main.resourceURL?.appendingPathComponent("Assets/\(name).png"),
-           let img = NSImage(contentsOf: mainUrl) {
-            return Image(nsImage: img)
-        }
-        let devUrl = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent()
-            .appendingPathComponent("Assets/\(name).png")
-        if let img = NSImage(contentsOf: devUrl) {
+        if let url = ResourceLocator.url(forResource: name, withExtension: "png"),
+           let img = NSImage(contentsOf: url) {
             return Image(nsImage: img)
         }
         return Image(systemName: "photo")
@@ -140,29 +107,31 @@ struct ContentView: View {
     var body: some View {
         HStack(spacing: 0) {
             // LEFT: Pure Thematic Ocean Scene (410px, Crisp Viewport)
-            LeftThemedOceanPane(
-                mode: activeMode,
-                scanner: scanner,
-                sonar: sonar,
-                uninstaller: uninstaller,
-                optimizer: optimizer
-            )
-            .frame(width: 410)
-            .frame(maxHeight: .infinity)
-            .clipped()
-            .overlay(alignment: .trailing) {
-                // Subtle inner viewport bezel shadow before the nautical divider
-                LinearGradient(
-                    colors: [Color.clear, Color.black.opacity(0.32)],
-                    startPoint: .leading,
-                    endPoint: .trailing
+            if activeMode != .sonar {
+                LeftThemedOceanPane(
+                    mode: activeMode,
+                    scanner: scanner,
+                    sonar: sonar,
+                    uninstaller: uninstaller,
+                    optimizer: optimizer
                 )
-                .frame(width: 10)
-                .allowsHitTesting(false)
-            }
+                .frame(width: 410)
+                .frame(maxHeight: .infinity)
+                .clipped()
+                .overlay(alignment: .trailing) {
+                    // Subtle inner viewport bezel shadow before the nautical divider
+                    LinearGradient(
+                        colors: [Color.clear, Color.black.opacity(0.32)],
+                        startPoint: .leading,
+                        endPoint: .trailing
+                    )
+                    .frame(width: 10)
+                    .allowsHitTesting(false)
+                }
 
-            // THEMED NAUTICAL DEPTH-GAUGE DIVIDER
-            BathysNauticalDivider()
+                // THEMED NAUTICAL DEPTH-GAUGE DIVIDER
+                BathysNauticalDivider()
+            }
 
             // RIGHT: Breathable Workspace (2x2 Hub at Opening, or Selected Module)
             ZStack {
@@ -183,6 +152,14 @@ struct ContentView: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
         .background(BathysPalette.abyssDark)
+        // Sonar: un solo radar a tutta finestra per scegliere il disco e durante la mappatura
+        .overlay {
+            if showSonarRadar {
+                SonarRadarOverlay(sonar: sonar, onBack: returnToHomeHub)
+                    .transition(.blurFade)
+            }
+        }
+        .animation(.easeInOut(duration: 0.55), value: showSonarRadar)
         .preferredColorScheme(.dark)
         .ignoresSafeArea()
         .sheet(isPresented: $showPrivacySheet) {
@@ -212,10 +189,31 @@ struct ContentView: View {
             activeMode = initialMode
             if let initialMode {
                 triggerModeInitialLoad(for: initialMode)
+                if autoScan && initialMode == .sonar {
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
+                        sonar.scan()
+                    }
+                }
                 if autoScan && initialMode == .deepClean {
                     DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) {
                         scanner.scan()
                     }
+                }
+            }
+
+            // Opzioni di avvio per i test visivi (non usate nel normale utilizzo)
+            if CommandLine.arguments.contains("--settings-sheet") {
+                showSettingsSheet = true
+            }
+            if CommandLine.arguments.contains("--confirm-sheet") {
+                activeMode = .deepClean
+                Task { @MainActor in
+                    try? await Task.sleep(for: .milliseconds(250))
+                    scanner.scan()
+                    while scanner.isScanning || !scanner.hasScanned {
+                        try? await Task.sleep(for: .milliseconds(100))
+                    }
+                    scanner.showCleanConfirmation = true
                 }
             }
 
@@ -246,18 +244,14 @@ struct ContentView: View {
                     .frame(height: 104)
                     .shadow(color: Color.black.opacity(0.45), radius: 14, x: 0, y: 6)
 
-                Text(L10n.homeSubtitle)
-                    .font(.system(size: 14, weight: .regular))
-                    .foregroundStyle(BathysPalette.textSecondary)
-                    .multilineTextAlignment(.center)
-                    .lineLimit(1)
             }
             .frame(maxWidth: .infinity)
-            .padding(.top, 6)
-            .padding(.bottom, 26)
+            .padding(.top, 26)
             .onAppear {
                 optimizer.refreshTelemetry()
             }
+
+            Spacer(minLength: 28)
 
             // 2. Symmetrical 2x2 Grid (Centered & Enlarged Minimal Icons)
             VStack(spacing: 18) {
@@ -265,22 +259,29 @@ struct ContentView: View {
                     HomeModuleCard(mode: .deepClean) {
                         openMode(.deepClean)
                     }
+                    .blurReveal(delay: 0.0)
                     HomeModuleCard(mode: .sonar) {
                         openMode(.sonar)
                     }
+                    .blurReveal(delay: 0.05)
                 }
 
                 HStack(spacing: 18) {
                     HomeModuleCard(mode: .uninstaller) {
                         openMode(.uninstaller)
                     }
+                    .blurReveal(delay: 0.1)
                     HomeModuleCard(mode: .optimizer) {
                         openMode(.optimizer)
                     }
+                    .blurReveal(delay: 0.15000000000000002)
                 }
             }
 
-            Spacer(minLength: 20)
+            Spacer(minLength: 28)
+
+            GradientDivider()
+                .padding(.bottom, 18)
 
             // 3. Unified Bottom Bar: Telemetry + Privacy & Permissions + Settings Gear
             HStack(spacing: 10) {
@@ -295,7 +296,9 @@ struct ContentView: View {
                                 .font(.system(size: 11, weight: .semibold))
                                 .foregroundStyle(BathysPalette.sky)
 
-                            Text("\(L10n.lang == .italian ? "Disco libero:" : "Free disk:") \(ByteCountFormatter.string(fromByteCount: optimizer.diskFreeBytes, countStyle: .file))")
+                            Text("\(ByteCountFormatter.string(fromByteCount: optimizer.diskFreeBytes, countStyle: .file)) \(L10n.lang == .italian ? "liberi" : "free")")
+                                .lineLimit(1)
+                                .fixedSize()
                                 .font(.system(size: 11.5, weight: .medium, design: .monospaced))
                                 .foregroundStyle(BathysPalette.textSecondary)
 
@@ -320,6 +323,8 @@ struct ContentView: View {
                                 .frame(width: 6, height: 6)
 
                             Text(String(format: "RAM: %.0f%%", optimizer.ramUsedFraction * 100))
+                                .lineLimit(1)
+                                .fixedSize()
                                 .font(.system(size: 11.5, weight: .medium, design: .monospaced))
                                 .foregroundStyle(BathysPalette.textSecondary)
 
@@ -351,6 +356,8 @@ struct ContentView: View {
                             .font(.system(size: 11.5, weight: .medium))
                             .foregroundStyle(permissionManager.hasFullDiskAccess ? BathysPalette.emerald : BathysPalette.amber)
                         Text(permissionManager.hasFullDiskAccess ? L10n.protectionActive : L10n.grantFullDiskAccess)
+                            .lineLimit(1)
+                            .fixedSize()
                             .font(.system(size: 12, weight: .medium))
                             .foregroundStyle(permissionManager.hasFullDiskAccess ? BathysPalette.textSecondary : BathysPalette.amber)
                     }
@@ -393,6 +400,14 @@ struct ContentView: View {
                                 Text("v\(ver) " + (L10n.lang == .italian ? "disponibile" : "available"))
                                     .font(.system(size: 12, weight: .semibold))
                                     .foregroundStyle(Color.white)
+                            case .error:
+                                // Prima la pillola restava vuota in caso di errore di download/installazione
+                                Image(systemName: "exclamationmark.triangle.fill")
+                                    .font(.system(size: 11.5, weight: .bold))
+                                    .foregroundStyle(BathysPalette.amber)
+                                Text(L10n.lang == .italian ? "Aggiornamento non riuscito" : "Update failed")
+                                    .font(.system(size: 12, weight: .semibold))
+                                    .foregroundStyle(Color.white)
                             default:
                                 EmptyView()
                             }
@@ -423,6 +438,11 @@ struct ContentView: View {
         .padding(.horizontal, 56)
         .padding(.top, 22)
         .padding(.bottom, 22)
+        .background(ModuleAmbientGlow(tint: BathysPalette.sky))
+    }
+
+    private var showSonarRadar: Bool {
+        activeMode == .sonar && (sonar.rootNode == nil || sonar.isMappingVolume)
     }
 
     private func openMode(_ mode: BathysMode) {
@@ -443,10 +463,8 @@ struct ContentView: View {
         case .deepClean:
             break
         case .sonar:
+            // Il disco si sceglie sotto il radar: nessuna scansione automatica
             sonar.refreshVolumes()
-            if sonar.rootNode == nil && !sonar.isScanning {
-                sonar.scan()
-            }
         case .uninstaller:
             if uninstaller.apps.isEmpty && !uninstaller.isLoadingApps {
                 uninstaller.loadInstalledApps()
@@ -463,6 +481,21 @@ struct ContentView: View {
 
     @ViewBuilder
     private func activeModuleContainer(for mode: BathysMode) -> some View {
+        moduleView(for: mode)
+            .background(ModuleAmbientGlow(tint: moduleTint(mode)))
+    }
+
+    private func moduleTint(_ mode: BathysMode) -> Color {
+        switch mode {
+        case .deepClean: return BathysPalette.sky
+        case .sonar: return BathysPalette.amber
+        case .uninstaller: return BathysPalette.coral
+        case .optimizer: return BathysPalette.emerald
+        }
+    }
+
+    @ViewBuilder
+    private func moduleView(for mode: BathysMode) -> some View {
         switch mode {
         case .deepClean:
             DeepCleanModuleView(
@@ -544,34 +577,16 @@ struct HomeModuleCard: View {
             }
             .frame(maxWidth: .infinity, minHeight: 192, maxHeight: 192)
             .background(
-                RoundedRectangle(cornerRadius: 18, style: .continuous)
-                    .fill(
-                        LinearGradient(
-                            colors: [
-                                isHovered ? Color.white.opacity(0.088) : Color.white.opacity(0.048),
-                                isHovered ? Color.white.opacity(0.052) : Color.white.opacity(0.028)
-                            ],
-                            startPoint: .top,
-                            endPoint: .bottom
-                        )
-                    )
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: 18, style: .continuous)
-                    .strokeBorder(
-                        LinearGradient(
-                            colors: [
-                                isHovered ? Color.white.opacity(0.24) : Color.white.opacity(0.09),
-                                isHovered ? tintColor.opacity(0.32) : Color.white.opacity(0.04)
-                            ],
-                            startPoint: .topLeading,
-                            endPoint: .bottomTrailing
-                        ),
-                        lineWidth: 1.0
-                    )
+                TintedSurface(
+                    tint: tintColor,
+                    cornerRadius: 18,
+                    isActive: true,
+                    isHovered: isHovered,
+                    strength: isHovered ? 1.1 : 0.6
+                )
             )
             .shadow(
-                color: Color.black.opacity(isHovered ? 0.42 : 0.20),
+                color: Color.black.opacity(isHovered ? 0.40 : 0.22),
                 radius: isHovered ? 16 : 8,
                 x: 0,
                 y: isHovered ? 8 : 4
@@ -934,26 +949,79 @@ struct WorkspaceTopBar<Trailing: View>: View {
     var body: some View {
         HStack(alignment: .center) {
             Button(action: onBack) {
-                HStack(spacing: 6) {
-                    Image(systemName: "chevron.left")
-                        .font(.system(size: 11, weight: .semibold))
+                HStack(spacing: 9) {
+                    // Pulsantino rotondo luminoso con la freccia (stesso stile dei medaglioni)
+                    ZStack {
+                        Circle()
+                            .fill(
+                                LinearGradient(
+                                    colors: [Color(red: 0.06, green: 0.11, blue: 0.19), Color(red: 0.03, green: 0.06, blue: 0.11)],
+                                    startPoint: .top,
+                                    endPoint: .bottom
+                                )
+                            )
+                            .overlay(
+                                Circle().fill(
+                                    RadialGradient(
+                                        colors: [BathysPalette.sky.opacity(hoverBack ? 0.40 : 0.16), Color.clear],
+                                        center: .center,
+                                        startRadius: 1,
+                                        endRadius: 14
+                                    )
+                                )
+                            )
+                            .overlay(
+                                Circle().strokeBorder(
+                                    LinearGradient(
+                                        colors: [Color.white.opacity(hoverBack ? 0.40 : 0.22), BathysPalette.sky.opacity(hoverBack ? 0.65 : 0.30)],
+                                        startPoint: .topLeading,
+                                        endPoint: .bottomTrailing
+                                    ),
+                                    lineWidth: 1
+                                )
+                            )
+                            .frame(width: 24, height: 24)
+                        Image(systemName: "chevron.left")
+                            .font(.system(size: 10, weight: .bold))
+                            .foregroundStyle(hoverBack ? Color.white : BathysPalette.sky)
+                            .offset(x: hoverBack ? -1.5 : -0.5)
+                    }
+
                     Text(L10n.toolsBack)
-                        .font(.system(size: 13.5, weight: .medium))
+                        .font(.system(size: 13.5, weight: .semibold))
+                        .foregroundStyle(hoverBack ? Color.white : BathysPalette.textPrimary.opacity(0.85))
                 }
-                .foregroundStyle(hoverBack ? .white : BathysPalette.textSecondary)
-                .padding(.horizontal, 13)
-                .padding(.vertical, 7)
+                .padding(.leading, 5)
+                .padding(.trailing, 15)
+                .frame(height: 34)
                 .background(
-                    Capsule()
-                        .fill(hoverBack ? BathysPalette.surfaceFillHover : BathysPalette.surfaceFill)
+                    Capsule().fill(
+                        LinearGradient(
+                            colors: [Color.white.opacity(hoverBack ? 0.10 : 0.065), Color.white.opacity(hoverBack ? 0.05 : 0.025)],
+                            startPoint: .top,
+                            endPoint: .bottom
+                        )
+                    )
                 )
                 .overlay(
-                    Capsule()
-                        .strokeBorder(BathysPalette.hairline, lineWidth: 1)
+                    Capsule().strokeBorder(
+                        LinearGradient(
+                            colors: [Color.white.opacity(hoverBack ? 0.22 : 0.14), Color.white.opacity(0.04)],
+                            startPoint: .top,
+                            endPoint: .bottom
+                        ),
+                        lineWidth: 1
+                    )
                 )
+                .shadow(color: Color.black.opacity(0.28), radius: 8, x: 0, y: 4)
+                .contentShape(Capsule())
             }
-            .buttonStyle(.plain)
-            .onHover { hoverBack = $0 }
+            .buttonStyle(TactileCardButtonStyle())
+            .keyboardShortcut("[", modifiers: .command)
+            .help(L10n.lang == .italian ? "Torna agli strumenti (⌘[)" : "Back to tools (⌘[)")
+            .onHover { hovering in
+                withAnimation(.easeOut(duration: 0.18)) { hoverBack = hovering }
+            }
 
             Spacer()
 
@@ -1326,14 +1394,14 @@ struct DeepCleanModuleView: View {
         VStack(alignment: .leading, spacing: 0) {
             // Top bar
             WorkspaceTopBar(onBack: onBack) {
-                if scanner.hasScanned && !scanner.isScanning {
+                if scanner.hasScanned && !scanner.isScanning && !scanner.isCleaning {
                     Button {
                         scanner.scan()
                     } label: {
                         HStack(spacing: 6) {
                             Image(systemName: "arrow.clockwise")
                                 .font(.system(size: 11, weight: .medium))
-                            Text(L10n.lang == .italian ? "Riscansiona" : "Rescan")
+                            Text(L10n.rescanBtn)
                                 .font(.system(size: 13, weight: .medium))
                         }
                         .foregroundStyle(BathysPalette.textSecondary)
@@ -1351,13 +1419,13 @@ struct DeepCleanModuleView: View {
             ZStack {
                 if scanner.isScanning {
                     scanningProgressBody
-                        .transition(.opacity.combined(with: .scale(scale: 0.98)))
+                        .transition(.blurFade)
                 } else if scanner.hasScanned {
                     scannedResultsBody
-                        .transition(.opacity.combined(with: .scale(scale: 0.98)))
+                        .transition(.blurFade)
                 } else {
                     preScanHeroBody
-                        .transition(.opacity.combined(with: .scale(scale: 0.98)))
+                        .transition(.blurFade)
                 }
             }
             .animation(.spring(response: 0.34, dampingFraction: 0.84), value: scanner.isScanning)
@@ -1381,8 +1449,8 @@ struct DeepCleanModuleView: View {
             TrashConfirmationSheet(
                 title: L10n.lang == .italian ? "Spostare i file selezionati nel Cestino?" : "Move selected files to Trash?",
                 subtitle: L10n.lang == .italian
-                    ? "I file temporanei e le cache selezionate verranno spostati nel Cestino. Le cartelle strutturali di macOS e le sessioni delle app aperte restano protette."
-                    : "Selected temporary files and caches will be moved to the Trash. macOS structural folders and active app sessions remain protected.",
+                    ? "Potrai recuperarli dal Cestino in qualsiasi momento."
+                    : "You can restore them from the Trash at any time.",
                 bytes: scanner.selectedBytes,
                 confirmLabel: L10n.lang == .italian ? "Pulisci" : "Clean",
                 includesPermanentTrash: hasPermanentTrash,
@@ -1398,66 +1466,40 @@ struct DeepCleanModuleView: View {
     private var preScanHeroBody: some View {
         VStack(alignment: .leading, spacing: 0) {
             HStack(alignment: .lastTextBaseline) {
-                VStack(alignment: .leading, spacing: 6) {
-                    HStack(alignment: .firstTextBaseline, spacing: 12) {
-                        Text(L10n.lang == .italian ? "Scansione Profonda" : "Deep Clean")
-                            .font(.system(size: 34, weight: .light))
-                            .tracking(-0.5)
-                            .foregroundStyle(BathysPalette.textPrimary)
+                VStack(alignment: .leading, spacing: 5) {
+                    Text(L10n.lang == .italian ? "Scansione Profonda" : "Deep Clean")
+                        .font(.system(size: 34, weight: .light))
+                        .tracking(-0.5)
+                        .foregroundStyle(BathysPalette.textPrimary)
+                        .lineLimit(1)
 
-                        HStack(spacing: 5) {
-                            Image(systemName: "checkmark.shield.fill")
-                                .font(.system(size: 10, weight: .semibold))
-                                .foregroundStyle(BathysPalette.emerald)
-                            Text(L10n.lang == .italian
-                                 ? "\(scanner.protectedRunningAppsCount) app aperte protette"
-                                 : "\(scanner.protectedRunningAppsCount) open apps protected")
-                                .font(.system(size: 11, weight: .medium))
-                                .foregroundStyle(BathysPalette.emerald)
-                        }
-                        .padding(.horizontal, 9)
-                        .padding(.vertical, 3.5)
-                        .background(Capsule().fill(BathysPalette.emerald.opacity(0.11)))
-                        .overlay(Capsule().strokeBorder(BathysPalette.emerald.opacity(0.28), lineWidth: 1))
-                    }
-
-                    Text(L10n.lang == .italian
-                         ? "Seleziona le aree di sistema da ispezionare. Nessun file viene rimosso senza conferma."
-                         : "Select the system areas to inspect. No files are removed without confirmation.")
-                        .font(.system(size: 13.5, weight: .regular))
-                        .foregroundStyle(BathysPalette.textSecondary)
                 }
 
                 Spacer()
 
-                let allSelected = scanner.categories.allSatisfy { $0.isSelected }
-                Button {
-                    let target = !allSelected
-                    withAnimation(.spring(response: 0.24, dampingFraction: 0.75)) {
-                        for i in scanner.categories.indices {
-                            scanner.categories[i].isSelected = target
-                        }
-                    }
-                } label: {
-                    Text(allSelected ? L10n.deselectAll : L10n.selectAll)
-                        .font(.system(size: 12.5, weight: .medium))
-                        .foregroundStyle(BathysPalette.sky)
-                }
-                .buttonStyle(.plain)
+                HeaderTrailingControls(scanner: scanner)
             }
             .padding(.horizontal, 52)
-            .padding(.top, 18)
-            .padding(.bottom, 14)
+            .padding(.top, 20)
+            .padding(.bottom, 18)
 
-            ScrollView(.vertical, showsIndicators: false) {
-                VStack(spacing: 7) {
-                    ForEach($scanner.categories) { $cat in
-                        SpaciousCategoryCard(category: $cat, hasScanned: false)
-                    }
-                }
+            GradientDivider()
                 .padding(.horizontal, 52)
-                .padding(.vertical, 2)
+
+            Spacer(minLength: 0)
+
+            LazyVGrid(
+                columns: Array(repeating: GridItem(.flexible(), spacing: 14), count: 4),
+                spacing: 14
+            ) {
+                ForEach($scanner.categories) { $cat in
+                    CategoryTile(category: $cat)
+                        .blurReveal(delay: Double(scanner.categories.firstIndex { $0.id == cat.id } ?? 0) * 0.05)
+                }
             }
+            .padding(.horizontal, 52)
+
+            Spacer(minLength: 12)
 
             // Bottom Machined Scan Instrument Button
             HStack {
@@ -1501,12 +1543,7 @@ struct DeepCleanModuleView: View {
                     .animation(.spring(response: 0.28, dampingFraction: 0.82), value: scanner.selectedBytes)
                     .foregroundStyle(BathysPalette.textPrimary)
 
-                Text(scanner.currentPath.isEmpty ? "Controllo cartelle di sistema…" : scanner.currentPath)
-                    .font(.system(size: 12.5, weight: .regular, design: .monospaced))
-                    .foregroundStyle(BathysPalette.textTertiary)
-                    .lineLimit(1)
-                    .truncationMode(.middle)
-                    .frame(maxWidth: 480, alignment: .leading)
+
             }
             .padding(.bottom, 28)
 
@@ -1547,26 +1584,7 @@ struct DeepCleanModuleView: View {
                             Text("\(L10n.cleanupComplete) • \(ByteCountFormatter.string(fromByteCount: scanner.lastCleanedBytes, countStyle: .file))")
                                 .font(.system(size: 13, weight: .medium))
                                 .foregroundStyle(BathysPalette.emerald)
-                        } else {
-                            Text(L10n.lang == .italian ? "Risultati della scansione" : "Scan Results")
-                                .font(.system(size: 13, weight: .medium))
-                                .foregroundStyle(BathysPalette.textSecondary)
                         }
-
-                        HStack(spacing: 4) {
-                            Image(systemName: "checkmark.shield.fill")
-                                .font(.system(size: 9.5, weight: .semibold))
-                                .foregroundStyle(BathysPalette.emerald)
-                            Text(L10n.lang == .italian
-                                 ? "\(scanner.protectedRunningAppsCount) app in uso protette"
-                                 : "\(scanner.protectedRunningAppsCount) active apps protected")
-                                .font(.system(size: 11, weight: .medium))
-                                .foregroundStyle(BathysPalette.emerald)
-                        }
-                        .padding(.horizontal, 8)
-                        .padding(.vertical, 2.5)
-                        .background(Capsule().fill(BathysPalette.emerald.opacity(0.11)))
-                        .overlay(Capsule().strokeBorder(BathysPalette.emerald.opacity(0.28), lineWidth: 1))
                     }
 
                     HStack(alignment: .firstTextBaseline, spacing: 10) {
@@ -1577,7 +1595,7 @@ struct DeepCleanModuleView: View {
                             .animation(.spring(response: 0.28, dampingFraction: 0.82), value: scanner.selectedBytes)
                             .foregroundStyle(BathysPalette.textPrimary)
 
-                        Text(L10n.readyForCleanup)
+                        Text(L10n.lang == .italian ? "da liberare" : "to free up")
                             .font(.system(size: 15, weight: .regular))
                             .foregroundStyle(BathysPalette.textSecondary)
                     }
@@ -1585,36 +1603,39 @@ struct DeepCleanModuleView: View {
 
                 Spacer()
 
-                let allSelected = scanner.categories.allSatisfy { $0.isSelected }
-                Button {
-                    let target = !allSelected
-                    withAnimation(.spring(response: 0.24, dampingFraction: 0.75)) {
-                        for i in scanner.categories.indices {
-                            scanner.categories[i].isSelected = target
-                        }
-                    }
-                } label: {
-                    Text(allSelected ? L10n.deselectAll : L10n.selectAll)
-                        .font(.system(size: 13, weight: .medium))
-                        .foregroundStyle(BathysPalette.sky)
-                }
-                .buttonStyle(.plain)
+                HeaderTrailingControls(scanner: scanner)
             }
             .padding(.horizontal, 52)
             .padding(.top, 18)
-            .padding(.bottom, 14)
+            .padding(.bottom, 16)
+
+            GradientDivider()
+                .padding(.horizontal, 52)
+                .padding(.bottom, 6)
 
             // Clean Category List (Fits non-zero categories cleanly with breathing room)
-            ScrollView(.vertical, showsIndicators: false) {
-                VStack(spacing: 7) {
+            GeometryReader { geo in
+                ScrollView(.vertical, showsIndicators: false) {
+                VStack(spacing: 9) {
                     ForEach($scanner.categories) { $cat in
                         if cat.bytes > 0 || scanner.categories.allSatisfy({ $0.bytes == 0 }) {
-                            SpaciousCategoryCard(category: $cat, hasScanned: true)
+                            SpaciousCategoryCard(category: $cat, hasScanned: true, totalBytes: scanner.totalBytes)
+                                .blurReveal(delay: Double(scanner.categories.firstIndex { $0.id == cat.id } ?? 0) * 0.045)
                         }
                     }
                 }
                 .padding(.horizontal, 52)
-                .padding(.vertical, 2)
+                .padding(.top, 2)
+                .padding(.bottom, 18)
+                .frame(minHeight: geo.size.height, alignment: .center)
+            }
+            .mask(
+                VStack(spacing: 0) {
+                    Rectangle()
+                    LinearGradient(colors: [.black, .clear], startPoint: .top, endPoint: .bottom)
+                        .frame(height: 22)
+                }
+            )
             }
 
             // Bottom Action Bar with Breathing Room
@@ -1624,9 +1645,10 @@ struct DeepCleanModuleView: View {
                     label: L10n.cleanBtn,
                     iconName: "sparkles",
                     tint: BathysPalette.teal,
-                    isDisabled: scanner.selectedBytes == 0
+                    isDisabled: scanner.selectedBytes == 0 || scanner.isCleaning
                 ) {
-                    if AppSettings.shared.confirmBeforeClean {
+                    // Lo svuotamento definitivo del Cestino richiede sempre una conferma esplicita
+                    if AppSettings.shared.confirmBeforeClean || scanner.includesPermanentTrashDeletion {
                         scanner.showCleanConfirmation = true
                     } else {
                         scanner.cleanSelectedItems()
@@ -1640,11 +1662,360 @@ struct DeepCleanModuleView: View {
     }
 }
 
+// MARK: - Linea separatrice sfumata
+
+/// Filo sottile che sfuma ai lati: separa le zone senza appesantire
+struct GradientDivider: View {
+    var opacity: Double = 0.12
+
+    var body: some View {
+        LinearGradient(
+            colors: [Color.white.opacity(0), Color.white.opacity(opacity), Color.white.opacity(0)],
+            startPoint: .leading,
+            endPoint: .trailing
+        )
+        .frame(height: 1)
+        .allowsHitTesting(false)
+    }
+}
+
+/// Colonna destra delle intestazioni: app protette | seleziona tutto, sulla stessa linea di base
+struct HeaderTrailingControls: View {
+    @Bindable var scanner: Scanner
+    var fontSize: CGFloat = 13
+
+    var body: some View {
+        let allSelected = scanner.categories.allSatisfy { $0.isSelected }
+        HStack(alignment: .firstTextBaseline, spacing: 14) {
+            ProtectedAppsIndicator(scanner: scanner)
+                .help(L10n.lang == .italian
+                      ? "Nessun file viene rimosso senza la tua conferma. I file delle app aperte non vengono mai toccati."
+                      : "Nothing is removed without your confirmation. Files of open apps are never touched.")
+            Rectangle()
+                .fill(Color.white.opacity(0.14))
+                .frame(width: 1, height: 16)
+                .alignmentGuide(.firstTextBaseline) { d in d[.bottom] - 3 }
+            Button {
+                let target = !allSelected
+                withAnimation(.spring(response: 0.24, dampingFraction: 0.75)) {
+                    for i in scanner.categories.indices {
+                        scanner.categories[i].isSelected = target
+                    }
+                }
+            } label: {
+                Text(allSelected ? L10n.deselectAll : L10n.selectAll)
+                    .font(.system(size: fontSize, weight: .medium))
+                    .foregroundStyle(BathysPalette.sky)
+            }
+            .buttonStyle(.plain)
+        }
+    }
+}
+
+// MARK: - Comparsa con sfocatura animata
+
+/// Fa comparire un elemento passando da sfocato e trasparente a nitido (rispetta "Riduci movimento")
+struct BlurReveal: ViewModifier {
+    var delay: Double = 0
+    @State private var shown = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    func body(content: Content) -> some View {
+        let visible = shown || reduceMotion
+        content
+            .blur(radius: visible ? 0 : 8)
+            .opacity(visible ? 1 : 0)
+            .offset(y: visible ? 0 : 6)
+            .onAppear {
+                withAnimation(.easeOut(duration: 0.45).delay(delay)) { shown = true }
+            }
+    }
+}
+
+private struct BlurFadeModifier: ViewModifier {
+    let radius: CGFloat
+    let opacity: Double
+
+    func body(content: Content) -> some View {
+        content.blur(radius: radius).opacity(opacity)
+    }
+}
+
+extension View {
+    func blurReveal(delay: Double = 0) -> some View { modifier(BlurReveal(delay: delay)) }
+}
+
+extension AnyTransition {
+    /// Passaggio tra stati con dissolvenza sfocata
+    static var blurFade: AnyTransition {
+        .modifier(active: BlurFadeModifier(radius: 12, opacity: 0), identity: BlurFadeModifier(radius: 0, opacity: 1))
+    }
+}
+
+// MARK: - Indicatore app protette (icone reali delle app aperte + spia di stato)
+
+struct ProtectedAppsIndicator: View {
+    let scanner: Scanner
+    @State private var isHovered = false
+
+    var body: some View {
+        let apps = scanner.protectedRunningApps
+        let shown = Array(apps.prefix(5))
+
+        HStack(spacing: 12) {
+            // Pila di icone come nel Dock: le app che Bathys non toccherà
+            HStack(spacing: 6) {
+                ForEach(Array(shown.enumerated()), id: \.offset) { index, app in
+                    Group {
+                        if let icon = app.icon {
+                            Image(nsImage: icon)
+                                .resizable()
+                                .aspectRatio(contentMode: .fit)
+                        } else {
+                            Image(systemName: "app.fill")
+                                .foregroundStyle(BathysPalette.textTertiary)
+                        }
+                    }
+                    .frame(width: 20, height: 20)
+                    .offset(y: isHovered ? -1 : 0)
+                }
+                if apps.count > shown.count {
+                    Text("+\(apps.count - shown.count)")
+                        .font(.system(size: 9.5, weight: .bold).monospacedDigit())
+                        .foregroundStyle(BathysPalette.textSecondary)
+                        .lineLimit(1)
+                        .fixedSize()
+                        .padding(.leading, 2)
+                }
+            }
+
+            // Spia verde da strumento di bordo + testo sobrio
+            HStack(spacing: 5) {
+                Circle()
+                    .fill(BathysPalette.emerald)
+                    .frame(width: 5, height: 5)
+                    .shadow(color: BathysPalette.emerald.opacity(0.8), radius: 3, x: 0, y: 0)
+                Text(L10n.lang == .italian
+                     ? "\(apps.count) app protette"
+                     : "\(apps.count) apps protected")
+                    .font(.system(size: 12.5, weight: .medium))
+                    .foregroundStyle(isHovered ? BathysPalette.textPrimary : BathysPalette.textSecondary)
+                    .lineLimit(1)
+                    .fixedSize()
+            }
+        }
+        .fixedSize()
+        .contentShape(Rectangle())
+        .onHover { hovering in
+            withAnimation(.easeOut(duration: 0.18)) { isHovered = hovering }
+        }
+        .help(helpText(for: apps))
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(helpText(for: apps))
+    }
+
+    private func helpText(for apps: [NSRunningApplication]) -> String {
+        let names = apps.compactMap(\.localizedName).sorted().joined(separator: ", ")
+        return L10n.lang == .italian
+            ? "I file di queste app aperte non verranno toccati: \(names)"
+            : "Files of these open apps will not be touched: \(names)"
+    }
+}
+
+// MARK: - Medaglione luminoso (stesso stile 3D delle icone della home)
+
+struct GlowMedallion: View {
+    let symbol: String
+    let tint: Color
+    var size: CGFloat = 36
+    var isActive: Bool = true
+
+    var body: some View {
+        ZStack {
+            Circle()
+                .fill(
+                    LinearGradient(
+                        colors: [Color(red: 0.032, green: 0.060, blue: 0.108), Color(red: 0.060, green: 0.105, blue: 0.175)],
+                        startPoint: .top,
+                        endPoint: .bottom
+                    )
+                )
+                .overlay(
+                    Circle().fill(
+                        RadialGradient(
+                            colors: [tint.opacity(isActive ? 0.34 : 0.08), Color.clear],
+                            center: .center,
+                            startRadius: 1,
+                            endRadius: size * 0.55
+                        )
+                    )
+                )
+                .overlay(
+                    Circle().strokeBorder(
+                        LinearGradient(
+                            colors: [Color.white.opacity(isActive ? 0.30 : 0.10), tint.opacity(isActive ? 0.50 : 0.12)],
+                            startPoint: .topLeading,
+                            endPoint: .bottomTrailing
+                        ),
+                        lineWidth: 1.2
+                    )
+                )
+                .shadow(color: Color.black.opacity(0.35), radius: 4, x: 0, y: 2)
+
+            Image(systemName: symbol)
+                .font(.system(size: size * 0.40, weight: .semibold))
+                .foregroundStyle(isActive ? tint : BathysPalette.textTertiary)
+                .shadow(color: tint.opacity(isActive ? 0.6 : 0), radius: 5, x: 0, y: 0)
+        }
+        .frame(width: size, height: size)
+    }
+}
+
+// MARK: - Bagliore di sfondo di ogni modulo (statico: nessun costo di CPU)
+
+struct ModuleAmbientGlow: View {
+    let tint: Color
+
+    var body: some View {
+        ZStack {
+            RadialGradient(
+                colors: [tint.opacity(0.20), tint.opacity(0.05), Color.clear],
+                center: UnitPoint(x: 0.92, y: 0.0),
+                startRadius: 0,
+                endRadius: 560
+            )
+            RadialGradient(
+                colors: [BathysPalette.teal.opacity(0.08), Color.clear],
+                center: UnitPoint(x: 0.1, y: 1.0),
+                startRadius: 0,
+                endRadius: 460
+            )
+        }
+        .allowsHitTesting(false)
+        .ignoresSafeArea()
+    }
+}
+
+/// Superficie con sfumatura del colore dell'area, usata per riquadri e righe selezionati
+struct TintedSurface: View {
+    let tint: Color
+    var cornerRadius: CGFloat = 12
+    var isActive: Bool
+    var isHovered: Bool = false
+    var strength: Double = 1
+
+    var body: some View {
+        let shape = RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+        shape
+            .fill(isHovered ? BathysPalette.surfaceFillHover : BathysPalette.surfaceFill)
+            .overlay(
+                shape.fill(
+                    LinearGradient(
+                        colors: [tint.opacity(isActive ? 0.17 * strength : 0), tint.opacity(isActive ? 0.03 * strength : 0)],
+                        startPoint: .topLeading,
+                        endPoint: .bottomTrailing
+                    )
+                )
+            )
+            .overlay(
+                shape.strokeBorder(
+                    isActive
+                        ? AnyShapeStyle(LinearGradient(colors: [tint.opacity(isHovered ? 0.60 : 0.42), tint.opacity(0.10)], startPoint: .topLeading, endPoint: .bottomTrailing))
+                        : AnyShapeStyle(isHovered ? BathysPalette.hairlineHover : BathysPalette.hairline),
+                    lineWidth: 1
+                )
+            )
+            .shadow(color: tint.opacity(isActive ? 0.18 * strength : 0), radius: 14, x: 0, y: 6)
+    }
+}
+
+// MARK: - Colore d'accento di ogni area
+
+extension ScanCategory {
+    var accent: Color {
+        switch id {
+        case "caches": return BathysPalette.sky
+        case "appcaches": return BathysPalette.teal
+        case "temp": return BathysPalette.amber
+        case "dev": return BathysPalette.teal
+        case "logs": return BathysPalette.steel
+        case "xcode": return BathysPalette.emerald
+        case "orphans": return BathysPalette.yellow
+        case "trash": return BathysPalette.coral
+        default: return BathysPalette.sky
+        }
+    }
+}
+
+// MARK: - Riquadro area (vista a griglia prima della scansione)
+
+struct CategoryTile: View {
+    @Binding var category: ScanCategory
+    @State private var isHovered = false
+
+    var body: some View {
+        let tint = category.accent
+        let on = category.isSelected
+
+        Button {
+            withAnimation(.spring(response: 0.26, dampingFraction: 0.78)) {
+                category.isSelected.toggle()
+            }
+        } label: {
+            VStack(alignment: .leading, spacing: 0) {
+                HStack(alignment: .top) {
+                    GlowMedallion(symbol: category.symbol, tint: tint, size: 50, isActive: on)
+                        .scaleEffect(isHovered && on ? 1.06 : 1)
+
+                    Spacer(minLength: 4)
+
+                    // Spia di selezione
+                    ZStack {
+                        Circle()
+                            .strokeBorder(on ? Color.clear : Color.white.opacity(0.22), lineWidth: 1.2)
+                            .background(Circle().fill(on ? tint : Color.clear))
+                            .frame(width: 20, height: 20)
+                        if on {
+                            Image(systemName: "checkmark")
+                                .font(.system(size: 9.5, weight: .heavy))
+                                .foregroundStyle(Color(red: 0.024, green: 0.043, blue: 0.075))
+                                .transition(.scale(scale: 0.4).combined(with: .opacity))
+                        }
+                    }
+                }
+
+                Spacer(minLength: 10)
+
+                Text(category.title)
+                    .font(.system(size: 14, weight: .medium))
+                    .foregroundStyle(on ? BathysPalette.textPrimary : BathysPalette.textTertiary)
+                    .lineLimit(2)
+                    .multilineTextAlignment(.leading)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .padding(14)
+            .frame(maxWidth: .infinity, minHeight: 140, maxHeight: 140, alignment: .topLeading)
+            .background(TintedSurface(tint: tint, cornerRadius: 16, isActive: on, isHovered: isHovered))
+            .opacity(on ? 1 : 0.72)
+            .scaleEffect(isHovered ? 1.015 : 1)
+            .contentShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+        }
+        .buttonStyle(TactileCardButtonStyle())
+        .onHover { hovering in
+            withAnimation(.easeOut(duration: 0.16)) { isHovered = hovering }
+        }
+        .help(category.subtitle)
+        .accessibilityLabel(category.title)
+        .accessibilityValue(on ? Text(L10n.lang == .italian ? "Inclusa" : "Included") : Text(L10n.lang == .italian ? "Esclusa" : "Skipped"))
+    }
+}
+
 // MARK: - Clean Category Row (Tactile Round Controls, Zero Fluorescent Borders)
 
 struct SpaciousCategoryCard: View {
     @Binding var category: ScanCategory
     var hasScanned: Bool = true
+    var totalBytes: Int64 = 0
     @State private var hover = false
 
     var body: some View {
@@ -1656,43 +2027,33 @@ struct SpaciousCategoryCard: View {
                     size: 19
                 )
 
-                ZStack {
-                    Circle()
-                        .fill(accentColor.opacity(0.14))
-                        .frame(width: 32, height: 32)
-                        .overlay(
-                            Circle()
-                                .strokeBorder(accentColor.opacity(0.24), lineWidth: 1)
-                        )
+                GlowMedallion(symbol: category.symbol, tint: accentColor, size: 36, isActive: category.isSelected)
 
-                    Image(systemName: category.symbol)
-                        .font(.system(size: 13, weight: .medium))
-                        .foregroundStyle(accentColor)
-                }
-
-                VStack(alignment: .leading, spacing: 1.5) {
+                VStack(alignment: .leading, spacing: 6) {
                     Text(category.title)
-                        .font(.system(size: 13.5, weight: .medium))
+                        .font(.system(size: 14.5, weight: .medium))
                         .foregroundStyle(category.isSelected ? BathysPalette.textPrimary : BathysPalette.textSecondary)
-
-                    Text(category.subtitle)
-                        .font(.system(size: 11.5, weight: .regular))
-                        .foregroundStyle(BathysPalette.textTertiary)
                         .lineLimit(1)
+
+                    // Quanto pesa quest'area sul totale trovato
+                    if hasScanned && totalBytes > 0 && category.bytes > 0 {
+                        GeometryReader { geo in
+                            ZStack(alignment: .leading) {
+                                Capsule().fill(Color.white.opacity(0.06))
+                                Capsule()
+                                    .fill(LinearGradient(colors: [accentColor.opacity(0.9), accentColor.opacity(0.5)], startPoint: .leading, endPoint: .trailing))
+                                    .frame(width: max(6, geo.size.width * CGFloat(Double(category.bytes) / Double(totalBytes))))
+                                    .opacity(category.isSelected ? 1 : 0.35)
+                            }
+                        }
+                        .frame(width: 180, height: 4)
+                    }
                 }
 
                 Spacer(minLength: 12)
 
                 if !hasScanned {
-                    Text(category.isSelected
-                         ? (L10n.lang == .italian ? "Incluso" : "Included")
-                         : (L10n.lang == .italian ? "Escluso" : "Skipped"))
-                        .font(.system(size: 11.5, weight: .medium))
-                        .foregroundStyle(category.isSelected ? BathysPalette.textSecondary : BathysPalette.textTertiary)
-                        .padding(.horizontal, 9)
-                        .padding(.vertical, 3)
-                        .background(Capsule().fill(Color.white.opacity(0.04)))
-                        .overlay(Capsule().strokeBorder(BathysPalette.hairline, lineWidth: 1))
+                    EmptyView()
                 } else if category.bytes > 0 {
                     Text(ByteCountFormatter.string(fromByteCount: category.selectedBytes, countStyle: .file))
                         .font(.system(size: 13.5, weight: .medium))
@@ -1718,9 +2079,10 @@ struct SpaciousCategoryCard: View {
                     }
                 }
             }
-            .padding(.horizontal, 14)
-            .padding(.vertical, 9)
+            .padding(.horizontal, 16)
+            .padding(.vertical, 11)
             .contentShape(Rectangle())
+            .help(category.subtitle)
             .onTapGesture {
                 if hasScanned && !category.topItems.isEmpty {
                     withAnimation(.spring(response: 0.26, dampingFraction: 0.80)) {
@@ -1749,12 +2111,7 @@ struct SpaciousCategoryCard: View {
                                     .foregroundStyle(item.isSelected ? BathysPalette.textSecondary : BathysPalette.textTertiary)
                                     .lineLimit(1)
 
-                                if let safetyNote = item.safetyNote {
-                                    Text(safetyNote)
-                                        .font(.system(size: 10.5, weight: .regular))
-                                        .foregroundStyle(BathysPalette.textTertiary)
-                                        .lineLimit(1)
-                                }
+
                             }
 
                             Spacer()
@@ -1776,6 +2133,7 @@ struct SpaciousCategoryCard: View {
                         }
                         .padding(.horizontal, 12)
                         .padding(.vertical, 5)
+                        .help(item.safetyNote ?? item.path)
                     }
                 }
                 .padding(.leading, 40)
@@ -1783,14 +2141,7 @@ struct SpaciousCategoryCard: View {
                 .padding(.bottom, 8)
             }
         }
-        .background(
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .fill(hover ? BathysPalette.surfaceFillHover : BathysPalette.surfaceFill)
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .strokeBorder(hover ? BathysPalette.hairlineHover : BathysPalette.hairline, lineWidth: 1)
-        )
+        .background(TintedSurface(tint: accentColor, cornerRadius: 14, isActive: category.isSelected && hasScanned, isHovered: hover, strength: 0.6))
         .onHover { hovering in
             withAnimation(.easeOut(duration: 0.16)) {
                 hover = hovering
@@ -1948,11 +2299,20 @@ struct DynamicDivingSubmarine: View {
                     .position(x: 175 * 0.5 + 75, y: 140 * 0.5 + 12)
                     .opacity(bubblesAlpha)
 
-                BathysAsset.image(named: "submarine_yellow")
+                // Scafo senza elica + elica animata (come in Prestazioni): gira piano a riposo,
+                // accelera durante scansione, pulizia e risalita
+                BathysAsset.image(named: "submarine_hull")
                     .resizable()
                     .aspectRatio(contentMode: .fit)
                     .frame(width: 175, height: 140)
                     .shadow(color: Color.black.opacity(0.35), radius: 12, y: 8)
+
+                HighSpeedPropellerView(
+                    time: time,
+                    speedFactor: (isScanning || isCleaning || isResurfacing) ? 1.2 : 0.8,
+                    isTurbo: isScanning || isCleaning || isResurfacing
+                )
+                .position(x: 175 * 0.5 + 77.0, y: 140 * 0.5 + 24.5)
             }
             .frame(width: 175, height: 140)
             .rotationEffect(.degrees(currentPitch))
@@ -2856,23 +3216,7 @@ final class PermissionManager {
     }
 
     func checkPermissions() {
-        let home = FileManager.default.homeDirectoryForCurrentUser
-        let fm = FileManager.default
-        let canaries = [
-            home.appendingPathComponent("Library/Safari"),
-            home.appendingPathComponent("Library/Mail"),
-            home.appendingPathComponent("Library/Cookies"),
-            home.appendingPathComponent("Library/Messages"),
-            home.appendingPathComponent("Library/Suggestions")
-        ]
-        var granted = false
-        for canary in canaries {
-            if (try? fm.contentsOfDirectory(at: canary, includingPropertiesForKeys: nil)) != nil {
-                granted = true
-                break
-            }
-        }
-        hasFullDiskAccess = granted
+        hasFullDiskAccess = MacSafetyIntelligence.hasFullDiskAccess()
     }
 
     func openSystemSettingsFullDiskAccess() {
@@ -2965,22 +3309,22 @@ struct PrivacyOnboardingSheet: View {
                     PrivacyPillarRow(
                         icon: "network.slash",
                         tint: BathysPalette.sky,
-                        title: "Zero Connessioni & Zero Archiviazione Esterna",
-                        description: "Bathys opera 100% offline sul tuo processore. Nessun dato, nome di file o statistica viene mai inviato a server esterni né tracciato."
+                        title: "Nessun Dato Inviato, Nessun Tracciamento",
+                        description: "Tutto avviene sul tuo Mac. Bathys si collega solo per cercare aggiornamenti."
                     )
 
                     PrivacyPillarRow(
                         icon: "lock.fill",
                         tint: BathysPalette.emerald,
                         title: "Dati Personali Intoccabili",
-                        description: "Documenti, Foto, Scrivania, Messaggi, Mail e Portachiavi (Keychains) non vengono mai letti né aperti. Vengono analizzati esclusivamente file temporanei e cache usa-e-getta."
+                        description: "Documenti, foto, messaggi e password non vengono mai aperti."
                     )
 
                     PrivacyPillarRow(
                         icon: "hand.raised.fill",
                         tint: BathysPalette.amber,
                         title: "Nessuna Cancellazione Autonoma",
-                        description: "Le scansioni operano in sola lettura. Nessun elemento viene spostato nel Cestino senza la tua esplicita conferma."
+                        description: "Niente viene rimosso senza la tua conferma."
                     )
 
                     // Full Disk Access Row
@@ -2996,13 +3340,15 @@ struct PrivacyOnboardingSheet: View {
                             }
 
                             VStack(alignment: .leading, spacing: 2) {
-                                Text("Accesso Completo al Disco (Full Disk Access)")
+                                Text("Accesso Completo al Disco")
                                     .font(.system(size: 13.5, weight: .medium))
                                     .foregroundStyle(.white)
+                                    .fixedSize(horizontal: false, vertical: true)
 
-                                Text("Necessario per calcolare le cache applicative in ~/Library e /var/folders.")
+                                Text("Serve per trovare tutte le cache.")
                                     .font(.system(size: 12, weight: .regular))
                                     .foregroundStyle(BathysPalette.textTertiary)
+                                    .fixedSize(horizontal: false, vertical: true)
                             }
 
                             Spacer()
@@ -3043,7 +3389,7 @@ struct PrivacyOnboardingSheet: View {
                                 Image(systemName: "lightbulb.fill")
                                     .font(.system(size: 11))
                                     .foregroundStyle(BathysPalette.amber)
-                                Text("Basta una volta sola: premi \"Apri Impostazioni\" e attiva la levetta per Bathys. Da quel momento analizzerà tutto il Mac senza mai più chiederti permessi individuali.")
+                                Text("Si fa una volta sola: apri Impostazioni e attiva Bathys.")
                                     .font(.system(size: 11.5, weight: .regular))
                                     .foregroundStyle(BathysPalette.textSecondary)
                                     .fixedSize(horizontal: false, vertical: true)

@@ -37,13 +37,21 @@ struct LeftThemedOceanPane: View {
     let uninstaller: UninstallerEngine
     let optimizer: OptimizerEngine
 
+    /// Stato della finestra: le animazioni si fermano quando Bathys non è in primo piano o non è visibile
+    @Environment(\.controlActiveState) private var controlActiveState
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var isWindowVisible = true
+
     var body: some View {
         GeometryReader { proxy in
             let w = proxy.size.width
             let h = proxy.size.height
 
             let isHighActivity = scanner.isScanning || scanner.isCleaning || scanner.isResurfacing || sonar.isScanning || uninstaller.isLoadingApps || optimizer.isRunningTasks
-            TimelineView(.animation(minimumInterval: isHighActivity ? (1.0 / 60.0) : (1.0 / 30.0))) { timeline in
+            // Risparmio energetico: nessun ridisegno se la finestra è nascosta/ridotta a icona; da inattiva o con
+            // "Riduci movimento" la scena resta ferma, salvo durante un'operazione in corso (immersione, pulizia…)
+            let isPaused = !isWindowVisible || (!isHighActivity && (controlActiveState == .inactive || reduceMotion))
+            TimelineView(.animation(minimumInterval: isHighActivity ? (1.0 / 60.0) : (1.0 / 30.0), paused: isPaused)) { timeline in
                 let time = timeline.date.timeIntervalSinceReferenceDate
 
                 ZStack {
@@ -64,7 +72,7 @@ struct LeftThemedOceanPane: View {
 
                     // 3. Scena Tematica Specifica per Modalità (Senza Testi o Box Sovrapposti)
                     switch mode {
-                    case .none, .some(.deepClean):
+                    case .none, .some(.deepClean), .some(.sonar):
                         VolumetricSunRaysView(time: time, width: w, height: h)
                         WaterCausticsLayer(time: time, width: w, height: h)
                         AnimatedWaterSurfaceWave(time: time, width: w, height: h)
@@ -109,14 +117,6 @@ struct LeftThemedOceanPane: View {
                         )
                         ForegroundFishLayer(time: time, containerSize: proxy.size)
 
-                    case .some(.sonar):
-                        SonarRadarScene(
-                            time: time,
-                            width: w,
-                            height: h,
-                            sonar: sonar
-                        )
-
                     case .some(.uninstaller):
                         VolumetricSunRaysView(time: time, width: w, height: h)
                         DistantReefLayer(time: time, width: w, height: h)
@@ -141,6 +141,15 @@ struct LeftThemedOceanPane: View {
                         )
                     }
                 }
+                // Composizione dell'intera scena in un'unica texture Metal: molto meno lavoro per la CPU
+                .drawingGroup()
+            }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: NSWindow.didChangeOcclusionStateNotification)) { note in
+            guard let window = note.object as? NSWindow, window.isVisible || window.isMiniaturized else { return }
+            // Considera solo la finestra principale (non i fogli modali)
+            if window.sheetParent == nil {
+                isWindowVisible = window.occlusionState.contains(.visible)
             }
         }
     }
@@ -441,29 +450,6 @@ struct SonarRadarInstrument: View {
                 .shadow(color: Color.black.opacity(0.60), radius: 6, y: 3)
         }
         .frame(width: diameter, height: diameter)
-    }
-}
-
-struct SonarRadarScene: View {
-    let time: Double
-    let width: CGFloat
-    let height: CGFloat
-    let sonar: SonarEngine
-
-    var body: some View {
-        ZStack {
-            NauticalConsolePanel(size: 292) {
-                ZStack {
-                    Circle()
-                        .fill(Color(red: 0.02, green: 0.05, blue: 0.10).opacity(0.98))
-                        .frame(width: 252, height: 252)
-                    AzimuthCompassRing(diameter: 252)
-                    SonarRadarInstrument(time: time, sonar: sonar, diameter: 248)
-                }
-            }
-            .position(x: width / 2, y: 65.0 + height / 2.0)
-        }
-        .frame(width: width, height: height)
     }
 }
 

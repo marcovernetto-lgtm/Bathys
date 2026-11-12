@@ -43,7 +43,7 @@ struct BathysApp: App {
                 autoScan: CommandLine.arguments.contains("--auto-scan"),
                 initialMode: initialMode
             )
-            .frame(minWidth: 1120, minHeight: 680)
+            .frame(minWidth: 1180, minHeight: 760)
             .onAppear {
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
                     NSApp.activate(ignoringOtherApps: true)
@@ -53,5 +53,7 @@ struct BathysApp: App {
         }
         .windowStyle(.hiddenTitleBar)
         .windowResizability(.contentMinSize)
+        // Apertura più ampia: liste e pulsanti stanno interi senza schiacciare nulla
+        .defaultSize(width: 1320, height: 860)
     }
 }
