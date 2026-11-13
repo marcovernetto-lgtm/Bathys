@@ -8,7 +8,8 @@ enum SafeFileOps {
     /// - `permanently` è riservato al contenuto del Cestino stesso (svuotamento definitivo).
     /// - Il fallback su `NSWorkspace.recycle` (che può chiedere l'autenticazione del Finder) viene usato solo
     ///   fuori dal Main Thread e solo se richiesto, per non bloccare mai l'interfaccia.
-    nonisolated static func moveToTrash(_ url: URL, permanently: Bool = false, allowWorkspaceFallback: Bool = false) -> Bool {
+    /// - `record`: annota lo spostamento per la Cronologia delle pulizie (con la posizione nel Cestino, per il ripristino).
+    nonisolated static func moveToTrash(_ url: URL, permanently: Bool = false, allowWorkspaceFallback: Bool = false, record: Bool = true) -> Bool {
         let fm = FileManager.default
         if let sandbox = MacSafetyIntelligence.sandboxRootURL {
             let sbPath = (sandbox.path as NSString).standardizingPath
@@ -22,7 +23,9 @@ enum SafeFileOps {
         }
 
         do {
-            try fm.trashItem(at: url, resultingItemURL: nil)
+            var resulting: NSURL?
+            try fm.trashItem(at: url, resultingItemURL: &resulting)
+            if record { TrashJournal.record(original: url, trashed: resulting as URL?) }
             return true
         } catch {
             // L'elemento potrebbe essere già sparito (es. rimosso dall'app proprietaria): nulla da fare
@@ -33,16 +36,20 @@ enum SafeFileOps {
             let box = RecycleResultBox()
             NSWorkspace.shared.recycle([url]) { dict, err in
                 box.recycled = (err == nil && !dict.isEmpty)
+                box.newURL = dict.values.first
                 sema.signal()
             }
             // Attesa generosa: il Finder può mostrare una richiesta di password all'utente
             _ = sema.wait(timeout: .now() + 60)
-            return box.recycled || !fm.fileExists(atPath: url.path)
+            let done = box.recycled || !fm.fileExists(atPath: url.path)
+            if done && record { TrashJournal.record(original: url, trashed: box.newURL) }
+            return done
         }
     }
 
     private final class RecycleResultBox: @unchecked Sendable {
         var recycled = false
+        var newURL: URL?
     }
 
     struct ProcessResult: Sendable {

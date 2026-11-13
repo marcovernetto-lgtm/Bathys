@@ -328,6 +328,53 @@ struct SettingsSheetView: View {
 
                 Divider().background(Color.white.opacity(0.06))
 
+                // Avviso disco quasi pieno
+                HStack(spacing: 14) {
+                    Image(systemName: "externaldrive.badge.exclamationmark")
+                        .font(.system(size: 15, weight: .medium))
+                        .foregroundStyle(BathysPalette.amber)
+                        .frame(width: 22)
+
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(isItalian ? "Avviso disco quasi pieno" : "Low disk warning")
+                            .font(.system(size: 13, weight: .semibold))
+                            .foregroundStyle(Color.white)
+
+                        Text(isItalian ? "Controllato ogni volta che apri Bathys" : "Checked every time you open Bathys")
+                            .font(.system(size: 11, weight: .regular))
+                            .foregroundStyle(BathysPalette.textSecondary)
+                    }
+
+                    Spacer()
+
+                    Toggle("", isOn: $settings.lowDiskWarningEnabled)
+                        .toggleStyle(.switch)
+                        .labelsHidden()
+                }
+
+                if settings.lowDiskWarningEnabled {
+                    HStack(spacing: 14) {
+                        Color.clear.frame(width: 22, height: 1)
+
+                        Text(isItalian ? "Avvisami sotto" : "Warn me below")
+                            .font(.system(size: 12, weight: .medium))
+                            .foregroundStyle(BathysPalette.textSecondary)
+
+                        Spacer()
+
+                        Picker("", selection: $settings.lowDiskThresholdGB) {
+                            Text("20 GB").tag(20)
+                            Text("50 GB").tag(50)
+                            Text("100 GB").tag(100)
+                            Text("200 GB").tag(200)
+                        }
+                        .pickerStyle(.segmented)
+                        .frame(width: 220)
+                    }
+                }
+
+                Divider().background(Color.white.opacity(0.06))
+
                 // Soglia minima Sonar Radar
                 HStack(spacing: 14) {
                     Image(systemName: "antenna.radiowaves.left.and.right")

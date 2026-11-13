@@ -50,6 +50,19 @@ final class AppSettings {
         }
     }
 
+    /// Avviso quando lo spazio libero scende sotto la soglia (controllato all'apertura di Bathys)
+    var lowDiskWarningEnabled: Bool {
+        didSet {
+            UserDefaults.standard.set(lowDiskWarningEnabled, forKey: "bathys_lowdisk_enabled")
+        }
+    }
+
+    var lowDiskThresholdGB: Int {
+        didSet {
+            UserDefaults.standard.set(lowDiskThresholdGB, forKey: "bathys_lowdisk_threshold_gb")
+        }
+    }
+
     var sonarThresholdMB: Int {
         didSet {
             UserDefaults.standard.set(sonarThresholdMB, forKey: "bathys_sonar_threshold")
@@ -63,6 +76,8 @@ final class AppSettings {
         self.systemNotificationsEnabled = UserDefaults.standard.object(forKey: "bathys_sys_notifications") as? Bool ?? false
         self.confirmBeforeClean = UserDefaults.standard.object(forKey: "bathys_confirm_clean") as? Bool ?? true
         self.sonarThresholdMB = UserDefaults.standard.object(forKey: "bathys_sonar_threshold") as? Int ?? 100
+        self.lowDiskWarningEnabled = UserDefaults.standard.object(forKey: "bathys_lowdisk_enabled") as? Bool ?? true
+        self.lowDiskThresholdGB = UserDefaults.standard.object(forKey: "bathys_lowdisk_threshold_gb") as? Int ?? 50
     }
 }
 

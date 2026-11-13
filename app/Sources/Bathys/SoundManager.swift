@@ -20,7 +20,7 @@ final class SoundManager: @unchecked Sendable {
         playChimeImmediately()
     }
 
-    private func postSystemNotification(title: String, body: String) {
+    func postSystemNotification(title: String, body: String) {
         // Evita popup di sistema durante i test in sandbox
         guard MacSafetyIntelligence.sandboxRootURL == nil else { return }
         guard Bundle.main.bundleIdentifier != nil else { return }

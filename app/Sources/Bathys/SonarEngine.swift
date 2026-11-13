@@ -485,6 +485,7 @@ final class SonarEngine {
             }
             // Il contenitore resta: aggiorniamo la sua dimensione con ciò che è rimasto (elementi protetti)
             let remaining = UninstallerEngine.computeAllocatedSize(at: containerURL)
+            CleanupHistory.shared.commitPending(module: .sonar, title: "Contenuto di \(node.name)", freedBytes: max(0, node.bytes - remaining))
             applyTreeChange(
                 removing: node.id,
                 replacement: remaining > 0 ? node.with(bytes: remaining, children: []) : nil
@@ -506,6 +507,7 @@ final class SonarEngine {
                 NSLog("[Bathys Sonar] Impossibile cestinare nodo: \(node.name) (\(node.path))")
                 return
             }
+            CleanupHistory.shared.commitPending(module: .sonar, title: node.name, freedBytes: node.bytes)
             applyTreeChange(removing: node.id, replacement: nil)
         }
     }

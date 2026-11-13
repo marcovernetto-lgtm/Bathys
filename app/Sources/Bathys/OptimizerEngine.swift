@@ -146,6 +146,38 @@ final class OptimizerEngine {
         }
     }
 
+    // MARK: - Avviso disco quasi pieno
+
+    var lowDiskThresholdBytes: Int64 {
+        Int64(AppSettings.shared.lowDiskThresholdGB) * 1_000_000_000
+    }
+
+    /// True se lo spazio libero è sotto la soglia scelta nelle Impostazioni
+    var isDiskLow: Bool {
+        AppSettings.shared.lowDiskWarningEnabled && diskFreeBytes > 0 && diskFreeBytes < lowDiskThresholdBytes
+    }
+
+    /// Aggiorna lo spazio libero e, se è sotto la soglia, manda una notifica di sistema
+    /// (al massimo una ogni 6 ore, per non insistere a ogni ritorno sulla finestra).
+    func checkLowDiskSpace() {
+        refreshTelemetry()
+        guard isDiskLow, MacSafetyIntelligence.sandboxRootURL == nil,
+              !CommandLine.arguments.contains("--self-test") else { return }
+        let key = "bathys_lowdisk_last_notified"
+        let last = UserDefaults.standard.object(forKey: key) as? Date ?? .distantPast
+        guard Date.now.timeIntervalSince(last) > 6 * 3600 else { return }
+        UserDefaults.standard.set(Date.now, forKey: key)
+
+        let italian = AppSettings.shared.language == .italian
+        let free = ByteCountFormatter.string(fromByteCount: diskFreeBytes, countStyle: .file)
+        SoundManager.shared.postSystemNotification(
+            title: italian ? "Bathys • Disco quasi pieno" : "Bathys • Disk almost full",
+            body: italian
+                ? "Restano solo \(free) liberi (soglia \(AppSettings.shared.lowDiskThresholdGB) GB). Libera spazio prima di render o export pesanti."
+                : "Only \(free) left (threshold \(AppSettings.shared.lowDiskThresholdGB) GB). Free up space before heavy renders or exports."
+        )
+    }
+
     func scanLaunchAgents() {
         guard !isScanningAgents else { return }
         isScanningAgents = true
@@ -169,6 +201,7 @@ final class OptimizerEngine {
             UninstallerEngine.unloadUserLaunchAgentIfNeeded(at: url)
         }
         guard SafeFileOps.moveToTrash(url) else { return false }
+        CleanupHistory.shared.commitPending(module: .optimizer, title: "Elemento di avvio \(agent.label)", freedBytes: 0)
         launchAgents.removeAll { $0.id == agent.id }
         return true
     }
@@ -213,7 +246,8 @@ final class OptimizerEngine {
         let lib = home.appendingPathComponent("Library")
 
         func safeRemoveOrTrash(_ item: URL) -> Bool {
-            SafeFileOps.moveToTrash(item)
+            // Manutenzione (.DS_Store, plist corrotti, stati finestra): non serve in cronologia
+            SafeFileOps.moveToTrash(item, record: false)
         }
 
         switch id {

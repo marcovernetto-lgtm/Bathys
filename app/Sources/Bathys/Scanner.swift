@@ -594,8 +594,6 @@ final class Scanner {
                     for item in selectedCats[catIndex].topItems {
                         if item.isSelected {
                             var failedPaths: [String] = []
-                            var symbolsFreed: Int64 = 0
-                            let isSymbolsCacheItem = item.targetPaths == ["symbolscache://compact"]
                             // Se nel frattempo l'utente ha aperto l'app proprietaria, la sua cache viene lasciata intatta
                             let ownerRunning = item.liveGuard?.isOwnerRunning(runningIds: runningNow) ?? false
 
@@ -603,23 +601,6 @@ final class Scanner {
                             let pathsToProcess = ownerRunning ? [] : item.targetPaths
 
                             for targetPath in pathsToProcess {
-                                // Supporto per la compattazione nativa Apple symbolscache (coresymbolicationd)
-                                if targetPath == "symbolscache://compact" {
-                                    if MacSafetyIntelligence.sandboxRootURL == nil {
-                                        let before = Scanner.getSymbolscacheBytes()
-                                        let result = SafeFileOps.runProcess("/usr/bin/symbolscache", ["compact", "--free-capacity", "256"], timeout: 120)
-                                        let after = Scanner.getSymbolscacheBytes()
-                                        if result?.status == 0 {
-                                            count += 1
-                                            // Conta solo lo spazio realmente recuperato dalla compattazione
-                                            symbolsFreed += max(0, before - after)
-                                        } else {
-                                            failedPaths.append(targetPath)
-                                        }
-                                    }
-                                    continue
-                                }
-
                                 // Controllo di sicurezza macOS assoluto: mai toccare cartelle di sistema o personali
                                 guard !MacSafetyIntelligence.isForbiddenToDelete(path: targetPath, allowUserContent: item.allowsUserContent) else {
                                     failedPaths.append(targetPath)
@@ -634,10 +615,7 @@ final class Scanner {
                                 }
                             }
 
-                            if isSymbolsCacheItem {
-                                // La cache simboli non viene eliminata ma compattata: il valore rilevato è la sua dimensione totale
-                                freed += symbolsFreed
-                            } else if failedPaths.isEmpty {
+                            if failedPaths.isEmpty {
                                 freed += item.bytes
                             } else {
                                 // Ricalcola la dimensione reale dei soli file che non è stato possibile rimuovere
@@ -680,6 +658,11 @@ final class Scanner {
                 categories[update.index].bytes = update.bytes
             }
 
+            CleanupHistory.shared.commitPending(
+                module: .deepClean,
+                title: "Pulizia di \(cleanResult.count) elementi",
+                freedBytes: cleanResult.freed
+            )
             lastCleanedBytes = cleanResult.freed
             lastCleanedCount = cleanResult.count
             isCleaning = false
@@ -696,25 +679,6 @@ final class Scanner {
             self.isResurfacing = false
             self.resurfaceStartedAt = nil
         }
-    }
-
-    nonisolated static func getSymbolscacheBytes() -> Int64 {
-        if MacSafetyIntelligence.sandboxRootURL != nil { return 0 }
-        guard let result = SafeFileOps.runProcess("/usr/bin/symbolscache", ["status"], timeout: 15),
-              result.status == 0 else { return 0 }
-        for line in result.output.components(separatedBy: "\n") where line.contains("bytes total:") {
-            let parts = line.components(separatedBy: ":")
-            guard parts.count > 1 else { continue }
-            let tokens = parts[1].trimmingCharacters(in: .whitespacesAndNewlines).split(separator: " ")
-            guard tokens.count >= 2, let val = Double(tokens[0].replacingOccurrences(of: ",", with: ".")) else { continue }
-            let unit = tokens[1].uppercased()
-            if unit.hasPrefix("TB") { return Int64(val * 1_000_000_000_000) }
-            if unit.hasPrefix("GB") { return Int64(val * 1_000_000_000) }
-            if unit.hasPrefix("MB") { return Int64(val * 1_000_000) }
-            if unit.hasPrefix("KB") { return Int64(val * 1_000) }
-            if unit.hasPrefix("B") { return Int64(val) }
-        }
-        return 0
     }
 
     /// Cartelle cache dei browser Chromium che non devono essere svuotate mentre il browser è aperto
@@ -893,20 +857,10 @@ final class Scanner {
             }
         }
 
-        // Rilevamento automatico della cache di debug simboli macOS (coresymbolicationd)
-        let isCachesCategory = urls.contains { $0.lastPathComponent == "Caches" && $0.path.contains("Library") }
-        if isCachesCategory {
-            let scBytes = Scanner.getSymbolscacheBytes()
-            if scBytes > 0 {
-                total += scBytes
-                childBuckets["com.apple.coresymbolicationd"] = GroupBucket(
-                    displayPath: "/System/Library/Caches/com.apple.coresymbolicationd",
-                    targetPaths: ["symbolscache://compact"],
-                    safetyNote: "Cache simboli di debug Apple gestita da coresymbolicationd • Compattazione nativa",
-                    bytes: scBytes
-                )
-            }
-        }
+        // La cache simboli di macOS (coresymbolicationd, in /System) non viene più proposta: è un file a
+        // dimensione fissa gestito dal sistema e protetto da SIP. `symbolscache compact` riordina le voci ma non
+        // libera spazio su disco, quindi la voce restava sempre selezionata e mai rimossa (e veniva contata due
+        // volte, in "Cache e browser" e in "Xcode").
 
         let allSorted = childBuckets.map {
             DiscoveredItem(

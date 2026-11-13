@@ -95,6 +95,7 @@ struct ContentView: View {
     @State private var permissionManager = PermissionManager()
     @State private var showPrivacySheet = false
     @State private var showSettingsSheet = false
+    @State private var showHistorySheet = false
     @State private var settings = AppSettings.shared
     @State private var updateManager = UpdateManager.shared
 
@@ -173,11 +174,25 @@ struct ContentView: View {
             SettingsSheetView()
                 .presentationBackground(BathysPalette.workspaceBottom)
         }
+        .sheet(isPresented: $showHistorySheet) {
+            CleanupHistorySheet()
+                .presentationBackground(BathysPalette.workspaceBottom)
+        }
+        .onReceive(NotificationCenter.default.publisher(for: CleanupHistory.restoredNotification)) { _ in
+            // Un'app ripristinata dal Cestino deve ricomparire nell'elenco di Disinstalla
+            if !uninstaller.apps.isEmpty { uninstaller.loadInstalledApps() }
+            // Elementi rimessi a posto: i residui orfani vanno ricalcolati
+            uninstaller.hasScannedOrphans = false
+            if uninstaller.isShowingOrphans { uninstaller.scanOrphans() }
+            optimizer.refreshTelemetry()
+        }
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
             permissionManager.checkPermissions()
+            withAnimation(.easeInOut(duration: 0.3)) { optimizer.checkLowDiskSpace() }
         }
         .onAppear {
             permissionManager.checkPermissions()
+            optimizer.checkLowDiskSpace()
             if !permissionManager.hasSeenPrivacyOnboarding || CommandLine.arguments.contains("--privacy-sheet") {
                 showPrivacySheet = true
             }
@@ -204,6 +219,9 @@ struct ContentView: View {
             // Opzioni di avvio per i test visivi (non usate nel normale utilizzo)
             if CommandLine.arguments.contains("--settings-sheet") {
                 showSettingsSheet = true
+            }
+            if CommandLine.arguments.contains("--history-sheet") {
+                showHistorySheet = true
             }
             if CommandLine.arguments.contains("--confirm-sheet") {
                 activeMode = .deepClean
@@ -280,6 +298,17 @@ struct ContentView: View {
 
             Spacer(minLength: 28)
 
+            if optimizer.isDiskLow {
+                LowDiskBanner(
+                    freeBytes: optimizer.diskFreeBytes,
+                    thresholdGB: settings.lowDiskThresholdGB,
+                    onDeepScan: { openMode(.deepClean) },
+                    onSonar: { openMode(.sonar) }
+                )
+                .padding(.bottom, 16)
+                .transition(.opacity.combined(with: .move(edge: .bottom)))
+            }
+
             GradientDivider()
                 .padding(.bottom, 18)
 
@@ -292,9 +321,9 @@ struct ContentView: View {
                     HStack(spacing: 16) {
                         // Free Disk Space + Mini Bar
                         HStack(spacing: 7) {
-                            Image(systemName: "internaldrive.fill")
+                            Image(systemName: optimizer.isDiskLow ? "exclamationmark.triangle.fill" : "internaldrive.fill")
                                 .font(.system(size: 11, weight: .semibold))
-                                .foregroundStyle(BathysPalette.sky)
+                                .foregroundStyle(optimizer.isDiskLow ? BathysPalette.amber : BathysPalette.sky)
 
                             Text("\(ByteCountFormatter.string(fromByteCount: optimizer.diskFreeBytes, countStyle: .file)) \(L10n.lang == .italian ? "liberi" : "free")")
                                 .lineLimit(1)
@@ -420,6 +449,17 @@ struct ContentView: View {
                     }
                     .buttonStyle(.plain)
                     .transition(.opacity.combined(with: .scale(scale: 0.96)))
+                }
+
+                // Cronologia delle pulizie (con Ripristina)
+                BathysRoundIconButton(
+                    icon: "clock.arrow.circlepath",
+                    size: 34,
+                    iconSize: 13.5,
+                    tint: BathysPalette.sky,
+                    helpText: L10n.lang == .italian ? "Cronologia pulizie" : "Cleanup history"
+                ) {
+                    showHistorySheet = true
                 }
 
                 // Circular Settings Button
@@ -1680,6 +1720,67 @@ struct GradientDivider: View {
 }
 
 /// Colonna destra delle intestazioni: app protette | seleziona tutto, sulla stessa linea di base
+/// Avviso in home quando lo spazio libero scende sotto la soglia scelta nelle Impostazioni
+struct LowDiskBanner: View {
+    let freeBytes: Int64
+    let thresholdGB: Int
+    let onDeepScan: () -> Void
+    let onSonar: () -> Void
+
+    private var isItalian: Bool { L10n.lang == .italian }
+
+    var body: some View {
+        HStack(spacing: 12) {
+            Image(systemName: "exclamationmark.triangle.fill")
+                .font(.system(size: 15, weight: .semibold))
+                .foregroundStyle(BathysPalette.amber)
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text(isItalian
+                     ? "Disco quasi pieno: restano \(ByteCountFormatter.string(fromByteCount: freeBytes, countStyle: .file))"
+                     : "Disk almost full: \(ByteCountFormatter.string(fromByteCount: freeBytes, countStyle: .file)) left")
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundStyle(.white)
+                    .lineLimit(1)
+                Text(isItalian
+                     ? "Sotto la soglia di \(thresholdGB) GB. Libera spazio prima di render o export pesanti."
+                     : "Below your \(thresholdGB) GB threshold. Free up space before heavy renders or exports.")
+                    .font(.system(size: 11.5))
+                    .foregroundStyle(BathysPalette.textSecondary)
+                    .lineLimit(1)
+            }
+
+            Spacer(minLength: 8)
+
+            bannerButton(isItalian ? "Scansione" : "Scan", action: onDeepScan)
+            bannerButton("Sonar", action: onSonar)
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 10)
+        .background(
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .fill(BathysPalette.amber.opacity(0.08))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .strokeBorder(BathysPalette.amber.opacity(0.30), lineWidth: 1)
+        )
+    }
+
+    private func bannerButton(_ title: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Text(title)
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundStyle(.white)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 5)
+                .background(Capsule().fill(BathysPalette.amber.opacity(0.20)))
+                .overlay(Capsule().strokeBorder(BathysPalette.amber.opacity(0.45), lineWidth: 1))
+        }
+        .buttonStyle(.plain)
+    }
+}
+
 struct HeaderTrailingControls: View {
     @Bindable var scanner: Scanner
     var fontSize: CGFloat = 13
@@ -1767,7 +1868,9 @@ struct ProtectedAppsIndicator: View {
             HStack(spacing: 6) {
                 ForEach(Array(shown.enumerated()), id: \.offset) { index, app in
                     Group {
-                        if let icon = app.icon {
+                        if let url = app.bundleURL {
+                            AppIconView(url: url, size: 20)
+                        } else if let icon = app.icon {
                             Image(nsImage: icon)
                                 .resizable()
                                 .aspectRatio(contentMode: .fit)
