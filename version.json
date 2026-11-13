@@ -1,10 +1,10 @@
 {
-  "version": "1.0.5",
-  "build": 6,
-  "releaseDate": "2026-11-12",
+  "version": "1.0.6",
+  "build": 7,
+  "releaseDate": "2026-11-13",
   "notes": {
-    "it": "Interfaccia più semplice e vivace, Sonar con radar a tutta finestra, pulizia delle cache di After Effects, DaVinci Resolve e altre app, disinstallazione più sicura e molte correzioni.",
-    "en": "Simpler, livelier interface, full-window Sonar radar, cleanup of After Effects, DaVinci Resolve and other app caches, safer uninstalls and many fixes."
+    "it": "Trova e sposta nel Cestino i file lasciati dalle app rimosse (con \"Cerca info\" per capire di cosa si tratta), cronologia delle pulizie con Ripristina, avviso disco quasi pieno, disinstallazione più affidabile, icone nitide e la X rossa che chiude l'app.",
+    "en": "Finds and trashes files left behind by removed apps (with \"Look up\" to see what they are), cleanup history with Restore, low-disk warning, more reliable uninstalls, sharp icons and the red close button now quits the app."
   },
   "downloads": {
     "universal": "https://raw.githubusercontent.com/marcovernetto-lgtm/Bathys/main/installers/Bathys-Universal-Intel-AppleSilicon.dmg",
