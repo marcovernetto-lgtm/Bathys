@@ -706,18 +706,17 @@ struct UninstallerWorkspace: View {
                 ScrollViewReader { scrollProxy in
                     ScrollView(.vertical, showsIndicators: false) {
                         LazyVStack(spacing: 4) {
+                            OrphanEntryRow(uninstaller: uninstaller)
+                                .id("orphans")
                             ForEach(uninstaller.filteredApps) { app in
-                                let isSelected = uninstaller.selectedApp?.id == app.id
+                                let isSelected = !uninstaller.isShowingOrphans && uninstaller.selectedApp?.id == app.id
                                 Button {
                                     withAnimation(.spring(response: 0.26, dampingFraction: 0.84)) {
                                         uninstaller.inspectApp(app)
                                     }
                                 } label: {
                                     HStack(spacing: 10) {
-                                        Image(nsImage: NSWorkspace.shared.icon(forFile: app.url.path))
-                                            .resizable()
-                                            .aspectRatio(contentMode: .fit)
-                                            .frame(width: 30, height: 30)
+                                        AppIconView(url: app.url, size: 30)
 
                                          VStack(alignment: .leading, spacing: 1.5) {
                                             HStack(spacing: 6) {
@@ -779,15 +778,14 @@ struct UninstallerWorkspace: View {
                         .strokeBorder(BathysPalette.hairline, lineWidth: 1)
                 )
 
-                // Right Column: Selected App & Associated Files
-                if let app = uninstaller.selectedApp {
+                // Right Column: Selected App & Associated Files (oppure i residui di app rimosse)
+                if uninstaller.isShowingOrphans {
+                    OrphanResidualsPanel(uninstaller: uninstaller)
+                } else if let app = uninstaller.selectedApp {
                     VStack(alignment: .leading, spacing: 0) {
                         // App Hero Header
                         HStack(spacing: 14) {
-                            Image(nsImage: NSWorkspace.shared.icon(forFile: app.url.path))
-                                .resizable()
-                                .aspectRatio(contentMode: .fit)
-                                .frame(width: 50, height: 50)
+                            AppIconView(url: app.url, size: 50)
 
                             VStack(alignment: .leading, spacing: 3) {
                                 HStack(spacing: 8) {
@@ -891,7 +889,7 @@ struct UninstallerWorkspace: View {
                                         : (L10n.lang == .italian ? "Disinstalla" : "Uninstall")),
                                 iconName: uninstaller.isResetOnlyMode ? "arrow.counterclockwise" : "trash.fill",
                                 tint: uninstaller.isResetOnlyMode ? BathysPalette.amber : BathysPalette.coral,
-                                isDisabled: uninstaller.totalSelectedBytes == 0 || uninstaller.isUninstalling,
+                                isDisabled: !uninstaller.hasSelection || uninstaller.isUninstalling,
                                 shortcutHint: "⌫"
                             ) {
                                 if AppSettings.shared.confirmBeforeClean {
@@ -918,6 +916,25 @@ struct UninstallerWorkspace: View {
             .padding(.horizontal, 52)
             .padding(.bottom, 26)
         }
+        .overlay(alignment: .top) {
+            if let report = uninstaller.lastReport {
+                UninstallReportBanner(
+                    report: report,
+                    onOpenSettings: { uninstaller.openAppManagementSettings() },
+                    onDismiss: {
+                        withAnimation(.easeOut(duration: 0.2)) { uninstaller.dismissReport() }
+                    }
+                )
+                .padding(.top, 78)
+                .padding(.horizontal, 52)
+                .transition(.move(edge: .top).combined(with: .opacity))
+            }
+        }
+        .animation(.spring(response: 0.34, dampingFraction: 0.86), value: uninstaller.lastReport)
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
+            // App cestinate dal Finder mentre Bathys era in secondo piano spariscono dall'elenco
+            uninstaller.pruneMissingApps()
+        }
         .focusable()
         .focusEffectDisabled()
         .onKeyPress(.upArrow) {
@@ -930,7 +947,12 @@ struct UninstallerWorkspace: View {
         }
         .onKeyPress(.delete) {
             // Da tastiera chiediamo SEMPRE conferma: un tasto premuto per errore non deve mai disinstallare un'app
-            if uninstaller.selectedApp != nil && uninstaller.totalSelectedBytes > 0 && !uninstaller.isUninstalling {
+            if uninstaller.isShowingOrphans {
+                guard uninstaller.hasOrphanSelection && !uninstaller.isUninstalling else { return .ignored }
+                uninstaller.showOrphanConfirmation = true
+                return .handled
+            }
+            if uninstaller.selectedApp != nil && uninstaller.hasSelection && !uninstaller.isUninstalling {
                 uninstaller.showUninstallConfirmation = true
                 return .handled
             }
@@ -950,6 +972,8 @@ struct UninstallerWorkspace: View {
         .onAppear {
             if uninstaller.apps.isEmpty {
                 uninstaller.loadInstalledApps()
+            } else {
+                uninstaller.pruneMissingApps()
             }
 
             // Monitor locale tastiera: Frecce Su/Giù e Backspace (51)
@@ -980,7 +1004,14 @@ struct UninstallerWorkspace: View {
 
                     case 51: // Backspace / Delete
                         // Da tastiera chiediamo SEMPRE conferma (mai disinstallazione immediata)
-                        if uninstaller.selectedApp != nil && uninstaller.totalSelectedBytes > 0
+                        if uninstaller.isShowingOrphans {
+                            if uninstaller.hasOrphanSelection && !uninstaller.isUninstalling && !uninstaller.showOrphanConfirmation {
+                                uninstaller.showOrphanConfirmation = true
+                                return nil
+                            }
+                            return event
+                        }
+                        if uninstaller.selectedApp != nil && uninstaller.hasSelection
                             && !uninstaller.isUninstalling && !uninstaller.showUninstallConfirmation {
                             uninstaller.showUninstallConfirmation = true
                             return nil
@@ -1019,6 +1050,132 @@ struct UninstallerWorkspace: View {
                 .presentationBackground(BathysPalette.workspaceBottom)
             }
         }
+        .sheet(isPresented: $uninstaller.showOrphanConfirmation) {
+            let selected = uninstaller.orphanGroups.filter(\.isSelected)
+            TrashConfirmationSheet(
+                title: "Spostare nel Cestino i residui di \(selected.count) \(selected.count == 1 ? "app rimossa" : "app rimosse")?",
+                subtitle: "Restano recuperabili dal Cestino e dalla Cronologia pulizie.",
+                bytes: uninstaller.selectedOrphanBytes,
+                confirmLabel: "Sposta nel Cestino",
+                previewItems: selected.flatMap(\.items).map {
+                    TrashPreviewItem(name: $0.name, detail: $0.kind.rawValue, bytes: $0.bytes, path: $0.path)
+                },
+                onCancel: { uninstaller.showOrphanConfirmation = false },
+                onConfirm: { uninstaller.removeSelectedOrphans() }
+            )
+            .presentationBackground(BathysPalette.workspaceBottom)
+        }
+    }
+}
+
+/// Esito della disinstallazione: conferma discreta se tutto è andato a buon fine,
+/// altrimenti spiega cosa è rimasto e, se macOS ha bloccato il bundle .app, porta al permesso giusto.
+struct UninstallReportBanner: View {
+    let report: UninstallerEngine.UninstallReport
+    let onOpenSettings: () -> Void
+    let onDismiss: () -> Void
+
+    private var isItalian: Bool { L10n.lang == .italian }
+    private var tint: Color { report.isSuccess ? BathysPalette.emerald : BathysPalette.amber }
+
+    private var title: String {
+        let size = ByteCountFormatter.string(fromByteCount: report.freedBytes, countStyle: .file)
+        if report.isOrphanCleanup {
+            let n = report.failedCount
+            if report.isSuccess {
+                return isItalian ? "Residui di app rimosse spostati nel Cestino • \(size)" : "Leftovers of removed apps moved to Trash • \(size)"
+            }
+            return isItalian
+                ? "\(n) \(n == 1 ? "elemento non è stato rimosso" : "elementi non sono stati rimossi")"
+                : "\(n) item\(n == 1 ? "" : "s") could not be removed"
+        }
+        if report.isSuccess {
+            if report.wasResetOnly {
+                return isItalian ? "Dati di \(report.appName) ripristinati • \(size)" : "\(report.appName) data reset • \(size)"
+            }
+            return isItalian ? "\(report.appName) disinstallata • \(size) nel Cestino" : "\(report.appName) uninstalled • \(size) moved to Trash"
+        }
+        if report.appBundleBlocked {
+            return isItalian ? "macOS non ha permesso di rimuovere \(report.appName)" : "macOS blocked removing \(report.appName)"
+        }
+        let n = report.failedCount
+        return isItalian
+            ? "\(n) \(n == 1 ? "elemento non è stato rimosso" : "elementi non sono stati rimossi")"
+            : "\(n) item\(n == 1 ? "" : "s") could not be removed"
+    }
+
+    private var detail: String? {
+        guard !report.isSuccess else { return nil }
+        if report.appBundleBlocked {
+            return isItalian
+                ? "Consenti a Bathys \"Gestione app\" in Privacy e sicurezza, poi riprova."
+                : "Allow Bathys under \"App Management\" in Privacy & Security, then try again."
+        }
+        return isItalian
+            ? "Potrebbero essere in uso o protetti. Riprova dopo aver chiuso l'app."
+            : "They may be in use or protected. Quit the app and try again."
+    }
+
+    var body: some View {
+        HStack(spacing: 12) {
+            Image(systemName: report.isSuccess ? "checkmark.circle.fill" : "exclamationmark.triangle.fill")
+                .font(.system(size: 15, weight: .semibold))
+                .foregroundStyle(tint)
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title)
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundStyle(.white)
+                    .lineLimit(1)
+                if let detail {
+                    Text(detail)
+                        .font(.system(size: 11.5))
+                        .foregroundStyle(BathysPalette.textSecondary)
+                        .lineLimit(2)
+                }
+            }
+
+            Spacer(minLength: 8)
+
+            if report.appBundleBlocked {
+                Button(action: onOpenSettings) {
+                    Text(isItalian ? "Apri Impostazioni" : "Open Settings")
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 5)
+                        .background(Capsule().fill(BathysPalette.amber.opacity(0.22)))
+                        .overlay(Capsule().strokeBorder(BathysPalette.amber.opacity(0.45), lineWidth: 1))
+                }
+                .buttonStyle(.plain)
+            }
+
+            Button(action: onDismiss) {
+                Image(systemName: "xmark")
+                    .font(.system(size: 10, weight: .bold))
+                    .foregroundStyle(BathysPalette.textTertiary)
+                    .frame(width: 22, height: 22)
+                    .background(Circle().fill(BathysPalette.surfaceFill))
+            }
+            .buttonStyle(.plain)
+            .help(isItalian ? "Chiudi" : "Close")
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 10)
+        .background(
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .fill(BathysPalette.workspaceBottom.opacity(0.96))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 14, style: .continuous)
+                        .fill(tint.opacity(0.10))
+                )
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .strokeBorder(tint.opacity(0.32), lineWidth: 1)
+        )
+        .shadow(color: .black.opacity(0.35), radius: 14, y: 6)
+        .frame(maxWidth: 640)
     }
 }
 
@@ -1130,15 +1287,9 @@ struct OptimizationWorkspace: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            // 1. Top Bar: Back Button + Segmented Switcher (Manutenzione | Elementi di Avvio)
+            // 1. Top Bar: solo il pulsante Indietro (la sezione si cambia dalla terza scheda qui sotto)
             WorkspaceTopBar(onBack: onBack) {
-                HStack(spacing: 4) {
-                    sectionTabButton(title: "Manutenzione", index: 0)
-                    sectionTabButton(title: "Elementi di Avvio (\(optimizer.launchAgents.count))", index: 1)
-                }
-                .padding(3)
-                .background(Capsule().fill(Color.white.opacity(0.04)))
-                .overlay(Capsule().strokeBorder(BathysPalette.hairline, lineWidth: 1))
+                EmptyView()
             }
             .padding(.horizontal, 48)
             .padding(.top, 30)
@@ -1159,12 +1310,28 @@ struct OptimizationWorkspace: View {
                     tint: BathysPalette.sky
                 )
 
-                TelemetryMetricPill(
-                    title: "Elementi di Avvio",
-                    value: "\(optimizer.launchAgents.count)",
-                    detail: optimizer.orphanedAgentsCount > 0 ? "\(optimizer.orphanedAgentsCount) orfani rilevati" : "Servizi attivi",
-                    tint: BathysPalette.emerald
-                )
+                // Terza scheda = interruttore di sezione: porta all'altra schermata (Elementi di Avvio ⇄ Manutenzione)
+                if selectedSection == 0 {
+                    TelemetryMetricPill(
+                        title: "Elementi di Avvio",
+                        value: "\(optimizer.launchAgents.count)",
+                        detail: optimizer.orphanedAgentsCount > 0 ? "\(optimizer.orphanedAgentsCount) orfani rilevati" : "Servizi attivi",
+                        tint: BathysPalette.emerald,
+                        actionSymbol: "arrow.right",
+                        helpText: "Mostra gli elementi di avvio",
+                        action: { switchSection(to: 1) }
+                    )
+                } else {
+                    TelemetryMetricPill(
+                        title: "Manutenzione",
+                        value: "\(optimizer.tasks.count)",
+                        detail: "Attività di ottimizzazione",
+                        tint: BathysPalette.emerald,
+                        actionSymbol: "arrow.left",
+                        helpText: "Torna alla manutenzione",
+                        action: { switchSection(to: 0) }
+                    )
+                }
             }
             .padding(.horizontal, 48)
             .padding(.top, 22)
@@ -1190,24 +1357,10 @@ struct OptimizationWorkspace: View {
         }
     }
 
-    private func sectionTabButton(title: String, index: Int) -> some View {
-        let isSelected = selectedSection == index
-        return Button {
-            withAnimation(.spring(response: 0.28, dampingFraction: 0.82)) {
-                selectedSection = index
-            }
-        } label: {
-            Text(title)
-                .font(.system(size: 12.5, weight: isSelected ? .medium : .regular))
-                .foregroundStyle(isSelected ? .white : BathysPalette.textSecondary)
-                .padding(.horizontal, 14)
-                .padding(.vertical, 6)
-                .background(
-                    Capsule()
-                        .fill(isSelected ? BathysPalette.surfaceFillSelected : Color.clear)
-                )
+    private func switchSection(to index: Int) {
+        withAnimation(.spring(response: 0.28, dampingFraction: 0.82)) {
+            selectedSection = index
         }
-        .buttonStyle(.plain)
     }
 
     private var maintenanceSectionBody: some View {
@@ -1360,8 +1513,20 @@ struct OptimizationWorkspace: View {
                 }
             }
             .padding(.horizontal, 48)
-            .padding(.bottom, 30)
+            .padding(.vertical, 14)
         }
+        // Bordi morbidi: le righe sfumano sotto le schede invece di essere tagliate di netto
+        .mask(
+            VStack(spacing: 0) {
+                LinearGradient(colors: [.clear, .black], startPoint: .top, endPoint: .bottom)
+                    .frame(height: 14)
+                Rectangle().fill(Color.black)
+                LinearGradient(colors: [.black, .clear], startPoint: .top, endPoint: .bottom)
+                    .frame(height: 14)
+            }
+        )
+        // Stesso margine libero in basso che a destra (48 pt)
+        .padding(.bottom, 48 - 14)
     }
 
     @ViewBuilder
@@ -1392,17 +1557,44 @@ struct TelemetryMetricPill: View {
     let value: String
     let detail: String
     let tint: Color
+    /// Se presente, la scheda diventa un pulsante (con freccia e stato hover)
+    var actionSymbol: String? = nil
+    var helpText: String? = nil
+    var action: (() -> Void)? = nil
+    @State private var isHovered = false
 
     var body: some View {
+        if let action {
+            Button(action: action) { card(interactive: true) }
+                .buttonStyle(.plain)
+                .onHover { hovering in
+                    withAnimation(.easeOut(duration: 0.16)) { isHovered = hovering }
+                }
+                .help(helpText ?? title)
+        } else {
+            card(interactive: false)
+        }
+    }
+
+    private func card(interactive: Bool) -> some View {
         VStack(alignment: .leading, spacing: 4) {
             HStack {
                 Text(title)
-                    .font(.system(size: 12, weight: .regular))
-                    .foregroundStyle(BathysPalette.textSecondary)
+                    .font(.system(size: 12, weight: interactive ? .medium : .regular))
+                    .foregroundStyle(interactive && isHovered ? BathysPalette.textPrimary : BathysPalette.textSecondary)
                 Spacer()
-                Circle()
-                    .fill(tint)
-                    .frame(width: 6, height: 6)
+                if interactive, let actionSymbol {
+                    Image(systemName: actionSymbol)
+                        .font(.system(size: 10.5, weight: .bold))
+                        .foregroundStyle(tint)
+                        .frame(width: 20, height: 20)
+                        .background(Circle().fill(tint.opacity(isHovered ? 0.24 : 0.14)))
+                        .offset(x: isHovered ? (actionSymbol == "arrow.left" ? -2 : 2) : 0)
+                } else {
+                    Circle()
+                        .fill(tint)
+                        .frame(width: 6, height: 6)
+                }
             }
 
             Text(value)
@@ -1420,12 +1612,17 @@ struct TelemetryMetricPill: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(
             RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .fill(BathysPalette.surfaceFill)
+                .fill(interactive && isHovered ? BathysPalette.surfaceFillHover : BathysPalette.surfaceFill)
+                .overlay(
+                    RoundedRectangle(cornerRadius: 14, style: .continuous)
+                        .fill(tint.opacity(interactive ? (isHovered ? 0.10 : 0.05) : 0))
+                )
         )
         .overlay(
             RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .strokeBorder(BathysPalette.hairline, lineWidth: 1)
+                .strokeBorder(interactive ? tint.opacity(isHovered ? 0.45 : 0.26) : BathysPalette.hairline, lineWidth: 1)
         )
+        .contentShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
     }
 }
 

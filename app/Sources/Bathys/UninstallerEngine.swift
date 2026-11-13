@@ -88,7 +88,66 @@ final class UninstallerEngine {
     var lastFreedBytes: Int64 = 0
     var lastFailedCount: Int = 0
     var isUninstalling = false
+    /// Esito dell'ultima disinstallazione, mostrato all'utente (successo o elementi rimasti al loro posto)
+    var lastReport: UninstallReport?
+    // Residui di app non più installate
+    var orphanGroups: [OrphanGroup] = []
+    var isScanningOrphans = false
+    var hasScannedOrphans = false
+    var isShowingOrphans = false
+    var showOrphanConfirmation = false
     private var inspectTask: Task<Void, Never>?
+    private var reportDismissTask: Task<Void, Never>?
+
+    struct UninstallReport: Equatable, Identifiable {
+        let id = UUID()
+        let appName: String
+        let freedBytes: Int64
+        let removedCount: Int
+        let failedCount: Int
+        let removedAppBundle: Bool
+        let wasResetOnly: Bool
+        /// True se macOS ha negato la rimozione del bundle .app (permesso "Gestione app" mancante)
+        let appBundleBlocked: Bool
+        /// Pulizia dei residui di app rimosse (non una disinstallazione)
+        var isOrphanCleanup: Bool = false
+
+        var isSuccess: Bool { failedCount == 0 && removedCount > 0 }
+    }
+
+    func dismissReport() {
+        reportDismissTask?.cancel()
+        lastReport = nil
+    }
+
+    /// Apre Impostazioni di Sistema › Privacy e sicurezza › Gestione app
+    func openAppManagementSettings() {
+        let candidates = [
+            "x-apple.systempreferences:com.apple.settings.PrivacySecurity.extension?Privacy_AppBundles",
+            "x-apple.systempreferences:com.apple.preference.security?Privacy_AppBundles"
+        ]
+        for raw in candidates {
+            if let url = URL(string: raw), NSWorkspace.shared.open(url) { return }
+        }
+    }
+
+    /// Toglie dall'elenco le app che non esistono più sul disco (es. cestinate dal Finder mentre Bathys era aperto)
+    func pruneMissingApps() {
+        let fm = FileManager.default
+        let missing = apps.filter { !fm.fileExists(atPath: $0.url.path) }
+        guard !missing.isEmpty else { return }
+        let missingIds = Set(missing.map(\.id))
+        missing.forEach { AppIconCache.evict($0.url) }
+        apps.removeAll { missingIds.contains($0.id) }
+        if let current = selectedApp, missingIds.contains(current.id) {
+            if let next = apps.first {
+                inspectApp(next)
+            } else {
+                selectedApp = nil
+                residuals = []
+            }
+        }
+    }
 
     var filteredApps: [InstalledApp] {
         if searchQuery.trimmingCharacters(in: .whitespaces).isEmpty {
@@ -100,6 +159,11 @@ final class UninstallerEngine {
             $0.bundleId.lowercased().contains(q) ||
             ($0.subfolderName?.lowercased().contains(q) ?? false)
         }
+    }
+
+    /// Almeno un elemento selezionato e analisi conclusa (anche file di 0 byte, es. preferenze vuote)
+    var hasSelection: Bool {
+        !isScanningResiduals && residuals.contains(where: \.isSelected)
     }
 
     var totalSelectedBytes: Int64 {
@@ -161,6 +225,8 @@ final class UninstallerEngine {
 
             self.apps = discovered
             self.isLoadingApps = false
+            // Analisi dei residui di app rimosse in sottofondo (serve per mostrarne il totale nell'elenco)
+            if !self.hasScannedOrphans { self.scanOrphans() }
             if let currentURL = self.selectedApp?.url.standardizedFileURL,
                let matched = discovered.first(where: { $0.url.standardizedFileURL == currentURL }) {
                 self.inspectApp(matched)
@@ -175,6 +241,7 @@ final class UninstallerEngine {
 
     func inspectApp(_ app: InstalledApp) {
         inspectTask?.cancel()
+        isShowingOrphans = false
         selectedApp = app
         isScanningResiduals = true
         residuals = []
@@ -269,7 +336,11 @@ final class UninstallerEngine {
         let items = residuals
         guard items.contains(where: \.isSelected) else { return }
         isUninstalling = true
+        dismissReport()
+        let wasResetOnly = isResetOnlyMode
         let shouldTerminate = MacSafetyIntelligence.sandboxRootURL == nil && app.isRunning
+        // Posizione dell'app nell'elenco visibile: dopo la rimozione si passa all'app che ne prende il posto
+        let listIndex = filteredApps.firstIndex(where: { $0.id == app.id })
 
         Task {
             // Se l'applicazione è aperta, chiudila gentilmente e attendi che termini davvero
@@ -285,6 +356,10 @@ final class UninstallerEngine {
                 UninstallerEngine.performRemoval(of: items, appURL: app.url)
             }.value
 
+            // Il bundle potrebbe essere sparito anche per altra via (Finder): l'elenco deve rispecchiare il disco
+            let bundleGone = !FileManager.default.fileExists(atPath: app.url.path)
+            let removedBundle = outcome.removedAppBundle || (bundleGone && !wasResetOnly)
+
             lastUninstalledAppName = app.name
             lastFreedBytes = outcome.freed
             lastFailedCount = outcome.failedCount
@@ -293,26 +368,66 @@ final class UninstallerEngine {
             }
             isUninstalling = false
 
-            if outcome.removedAppBundle {
+            if removedBundle {
+                AppIconCache.evict(app.url)
                 apps.removeAll { $0.id == app.id }
                 if selectedApp?.id == app.id {
-                    selectedApp = apps.first
-                    if let next = selectedApp {
+                    let remaining = filteredApps
+                    if let idx = listIndex, !remaining.isEmpty {
+                        inspectApp(remaining[min(idx, remaining.count - 1)])
+                    } else if let next = remaining.first ?? apps.first {
                         inspectApp(next)
                     } else {
+                        selectedApp = nil
                         residuals = []
                     }
                 }
             }
 
-            SoundManager.shared.playChime()
+            CleanupHistory.shared.commitPending(
+                module: .uninstaller,
+                title: wasResetOnly ? "Reset dati di \(app.name)" : "Disinstallazione di \(app.name)",
+                freedBytes: outcome.freed
+            )
+
+            let report = UninstallReport(
+                appName: app.name,
+                freedBytes: outcome.freed,
+                removedCount: outcome.removedIds.count,
+                failedCount: outcome.failedCount,
+                removedAppBundle: removedBundle,
+                wasResetOnly: wasResetOnly,
+                appBundleBlocked: outcome.appBundleBlocked
+            )
+            lastReport = report
+
+            if report.isSuccess {
+                SoundManager.shared.playChime(
+                    notificationTitle: wasResetOnly ? "Bathys • Dati ripristinati" : "Bathys • App disinstallata",
+                    notificationBody: "\(app.name): \(ByteCountFormatter.string(fromByteCount: outcome.freed, countStyle: .file)) spostati nel Cestino."
+                )
+                reportDismissTask?.cancel()
+                reportDismissTask = Task { [weak self] in
+                    try? await Task.sleep(for: .seconds(7))
+                    guard !Task.isCancelled, self?.lastReport?.id == report.id else { return }
+                    self?.lastReport = nil
+                }
+            } else if !CommandLine.arguments.contains("--self-test") {
+                // Niente "suono di successo" se qualcosa è rimasto al suo posto
+                NSSound.beep()
+            }
         }
+    }
+
+    private final class RecycleBox: @unchecked Sendable {
+        var moved: [URL: URL] = [:]
     }
 
     struct RemovalOutcome: Sendable {
         var freed: Int64 = 0
         var removedIds: Set<UUID> = []
         var removedAppBundle = false
+        var appBundleBlocked = false
         var failedCount = 0
     }
 
@@ -348,8 +463,25 @@ final class UninstallerEngine {
         if !pendingFallback.isEmpty && MacSafetyIntelligence.sandboxRootURL == nil {
             let urls = pendingFallback.map { URL(fileURLWithPath: $0.path) }
             let sema = DispatchSemaphore(value: 0)
-            NSWorkspace.shared.recycle(urls) { _, _ in sema.signal() }
+            let box = RecycleBox()
+            NSWorkspace.shared.recycle(urls) { dict, _ in
+                box.moved = dict
+                sema.signal()
+            }
             _ = sema.wait(timeout: .now() + 120)
+            for (original, trashed) in box.moved { TrashJournal.record(original: original, trashed: trashed) }
+
+            // Ultimo tentativo tramite il Finder: ha il permesso "Gestione app" che Bathys potrebbe non avere
+            // (macOS impedisce alle altre app di cestinare i bundle .app) e chiede la password di amministratore
+            // per gli elementi di proprietà di root.
+            let stillThere = pendingFallback.map(\.path).filter { fm.fileExists(atPath: $0) }
+            if !stillThere.isEmpty {
+                finderMoveToTrash(stillThere)
+                // Il Finder non comunica il nome finale nel Cestino: in cronologia resta "apri nel Cestino"
+                for path in stillThere where !fm.fileExists(atPath: path) {
+                    TrashJournal.record(original: URL(fileURLWithPath: path), trashed: nil)
+                }
+            }
         }
         for item in pendingFallback {
             if !fm.fileExists(atPath: item.path) {
@@ -358,9 +490,33 @@ final class UninstallerEngine {
                 if item.kind == .appBundle { outcome.removedAppBundle = true }
             } else {
                 outcome.failedCount += 1
+                if item.kind == .appBundle { outcome.appBundleBlocked = true }
             }
         }
         return outcome
+    }
+
+    /// Chiede al Finder di spostare nel Cestino i percorsi indicati (già verificati da `isRemovableResidual`).
+    /// I percorsi viaggiano come argomenti dello script, mai interpolati nel codice AppleScript.
+    nonisolated static func finderMoveToTrash(_ paths: [String]) {
+        guard !paths.isEmpty, MacSafetyIntelligence.sandboxRootURL == nil else { return }
+        let script = [
+            "on run argv",
+            "set targets to {}",
+            "repeat with p in argv",
+            "try",
+            "set end of targets to ((POSIX file (contents of p)) as alias)",
+            "end try",
+            "end repeat",
+            "if (count of targets) > 0 then",
+            "tell application \"Finder\" to delete targets",
+            "end if",
+            "end run"
+        ]
+        var args: [String] = []
+        for line in script { args += ["-e", line] }
+        args += paths
+        SafeFileOps.runProcess("/usr/bin/osascript", args, timeout: 180)
     }
 
     /// Scarica da launchd un LaunchAgent utente prima di cestinarne il plist (altrimenti resterebbe attivo fino al logout)
@@ -807,4 +963,102 @@ final class UninstallerEngine {
 
 private extension Character {
     var isLetterOrDigit: Bool { isLetter || isNumber }
+}
+
+// MARK: - Residui di app non più installate
+
+extension UninstallerEngine {
+    var selectedOrphanBytes: Int64 {
+        orphanGroups.filter(\.isSelected).reduce(0) { $0 + $1.bytes }
+    }
+
+    var totalOrphanBytes: Int64 {
+        orphanGroups.reduce(0) { $0 + $1.bytes }
+    }
+
+    var hasOrphanSelection: Bool {
+        !isScanningOrphans && orphanGroups.contains(where: \.isSelected)
+    }
+
+    func showOrphans() {
+        inspectTask?.cancel()
+        isScanningResiduals = false
+        isShowingOrphans = true
+        if !hasScannedOrphans && !isScanningOrphans { scanOrphans() }
+    }
+
+    func scanOrphans() {
+        guard !isScanningOrphans else { return }
+        isScanningOrphans = true
+        Task {
+            let groups = await Task.detached(priority: .utility) {
+                OrphanResidualScanner.scan()
+            }.value
+            self.orphanGroups = groups
+            self.isScanningOrphans = false
+            self.hasScannedOrphans = true
+        }
+    }
+
+    func removeSelectedOrphans() {
+        guard hasOrphanSelection, !isUninstalling else { return }
+        showOrphanConfirmation = false
+        isUninstalling = true
+        dismissReport()
+        let items = orphanGroups.filter(\.isSelected).flatMap(\.items)
+
+        Task {
+            let outcome = await Task.detached(priority: .userInitiated) { () -> RemovalOutcome in
+                var outcome = RemovalOutcome()
+                for item in items {
+                    guard OrphanResidualScanner.isRemovableOrphan(item) else {
+                        outcome.failedCount += 1
+                        continue
+                    }
+                    if SafeFileOps.moveToTrash(URL(fileURLWithPath: item.path)) {
+                        outcome.freed += item.bytes
+                        outcome.removedIds.insert(item.id)
+                    } else {
+                        outcome.failedCount += 1
+                    }
+                }
+                return outcome
+            }.value
+
+            CleanupHistory.shared.commitPending(module: .uninstaller, title: "Residui di app rimosse", freedBytes: outcome.freed)
+
+            // Toglie dall'elenco i gruppi svuotati, lascia ciò che non è stato possibile spostare
+            orphanGroups = orphanGroups.compactMap { group in
+                let remaining = group.items.filter { !outcome.removedIds.contains($0.id) }
+                guard !remaining.isEmpty else { return nil }
+                return OrphanGroup(name: group.name, items: remaining, lastModified: group.lastModified, isCertain: group.isCertain, isSelected: group.isSelected)
+            }
+            isUninstalling = false
+
+            let report = UninstallReport(
+                appName: "Residui di app rimosse",
+                freedBytes: outcome.freed,
+                removedCount: outcome.removedIds.count,
+                failedCount: outcome.failedCount,
+                removedAppBundle: false,
+                wasResetOnly: false,
+                appBundleBlocked: false,
+                isOrphanCleanup: true
+            )
+            lastReport = report
+            if report.isSuccess {
+                SoundManager.shared.playChime(
+                    notificationTitle: "Bathys • Residui rimossi",
+                    notificationBody: "\(ByteCountFormatter.string(fromByteCount: outcome.freed, countStyle: .file)) spostati nel Cestino."
+                )
+                Task { [weak self] in
+                    try? await Task.sleep(for: .seconds(7))
+                    guard self?.lastReport?.id == report.id else { return }
+                    self?.lastReport = nil
+                }
+            } else if !CommandLine.arguments.contains("--self-test") {
+                NSSound.beep()
+            }
+        }
+    }
 }

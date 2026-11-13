@@ -489,6 +489,44 @@ enum SelfTestRunner {
             "dsStoresRemoved=\(dsStoresRemoved), brokenPlistsRemoved=\(brokenPlistsRemoved), validPlistSurvived=\(validPlistSurvived), staleStateRemoved=\(staleStateRemoved), recentStateSurvived=\(recentStateSurvived)"
         )
 
+        // -------------------------------------------------------------------------
+        // PHASE 6: CRONOLOGIA PULIZIE (registrazione, ripristino, conflitti)
+        // -------------------------------------------------------------------------
+        // In sandbox i file vengono eliminati, non cestinati: simuliamo il Cestino con una cartella della sandbox
+        let history = CleanupHistory.shared
+        history.discardPending()
+        let fakeTrash = sandboxURL.appendingPathComponent("FakeTrash")
+        try? fm.createDirectory(at: fakeTrash, withIntermediateDirectories: true)
+        let restoreMe = writeSyntheticFile("Library/Application Support/HistoryApp/settings.dat", sizeBytes: 4096)
+        let conflictMe = writeSyntheticFile("Library/Caches/HistoryConflict/blob.dat", sizeBytes: 4096)
+        let restoreMeTrashed = fakeTrash.appendingPathComponent("settings.dat")
+        let conflictTrashed = fakeTrash.appendingPathComponent("blob.dat")
+        try? fm.moveItem(at: restoreMe, to: restoreMeTrashed)
+        try? fm.moveItem(at: conflictMe, to: conflictTrashed)
+        TrashJournal.record(original: restoreMe, trashed: restoreMeTrashed)
+        TrashJournal.record(original: conflictMe, trashed: conflictTrashed)
+        history.commitPending(module: .deepClean, title: "Self-test history", freedBytes: 8192)
+
+        let entry = history.entries.first
+        let recorded = entry?.title == "Self-test history" && entry?.records.count == 2 && history.restorableCount(in: entry!) == 2
+        // Un file con lo stesso nome nel frattempo è ricomparso: il ripristino non deve sovrascriverlo
+        _ = writeSyntheticFile("Library/Caches/HistoryConflict/blob.dat", sizeBytes: 10)
+        let conflictRecord = entry?.records.first { $0.originalPath == conflictMe.standardizedFileURL.path }
+        let restoreRecord = entry?.records.first { $0.originalPath == restoreMe.standardizedFileURL.path }
+        let conflictError = conflictRecord.flatMap { history.restore(recordId: $0.id, in: entry!.id) }
+        let restoreError = restoreRecord.flatMap { history.restore(recordId: $0.id, in: entry!.id) }
+        let restoredBack = fm.fileExists(atPath: restoreMe.path) && !fm.fileExists(atPath: restoreMeTrashed.path)
+        let conflictKept = fm.fileExists(atPath: conflictTrashed.path)
+            && ((try? fm.attributesOfItem(atPath: conflictMe.path)[.size] as? Int) ?? 0) == 10
+        var conflictWasRefused = false
+        if case .destinationExists? = conflictError { conflictWasRefused = true }
+        let historyFile = sandboxURL.appendingPathComponent("BathysSupport/cleanup-history.json")
+        check(
+            "Cleanup History Record & Restore (no overwrite on conflict)",
+            recorded && restoreError == nil && restoredBack && conflictWasRefused && conflictKept && fm.fileExists(atPath: historyFile.path),
+            "recorded=\(recorded), restored=\(restoredBack), conflictRefused=\(conflictWasRefused), conflictKept=\(conflictKept), saved=\(fm.fileExists(atPath: historyFile.path))"
+        )
+
         // Clean up sandbox after verification unless --keep-sandbox is passed
         if !CommandLine.arguments.contains("--keep-sandbox") {
             try? fm.removeItem(at: sandboxURL)

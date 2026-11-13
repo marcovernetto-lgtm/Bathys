@@ -597,10 +597,7 @@ struct DecompressionUninstallerScene: View {
 
                 // Icona App Sospesa nel Fluido Iperbarico
                 if let app = uninstaller.selectedApp {
-                    Image(nsImage: NSWorkspace.shared.icon(forFile: app.url.path))
-                        .resizable()
-                        .aspectRatio(contentMode: .fit)
-                        .frame(width: 64, height: 64)
+                    AppIconView(url: app.url, size: 64)
                         .shadow(color: Color.black.opacity(0.50), radius: 10, y: 6)
                         .offset(y: sin(time * 1.5) * 2.0)
                 } else {
