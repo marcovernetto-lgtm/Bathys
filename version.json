@@ -9,5 +9,13 @@
   "downloads": {
     "universal": "https://raw.githubusercontent.com/marcovernetto-lgtm/Bathys/main/installers/Bathys-Universal-Intel-AppleSilicon.dmg",
     "intelLegacy": "https://raw.githubusercontent.com/marcovernetto-lgtm/Bathys/main/installers/Bathys-Intel-macOS13-Ventura.dmg"
+  },
+  "legacy": {
+    "version": "1.0.4.1",
+    "build": 8,
+    "notes": {
+      "it": "Versione per macOS 13: corregge l'aggiornamento che si riscaricava a ogni avvio senza installarsi.",
+      "en": "macOS 13 build: fixes the update that was downloaded at every launch without installing."
+    }
   }
 }
