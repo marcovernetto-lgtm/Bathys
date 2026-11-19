@@ -8,7 +8,7 @@
   },
   "downloads": {
     "universal": "https://raw.githubusercontent.com/marcovernetto-lgtm/Bathys/main/installers/Bathys-Universal-Intel-AppleSilicon.dmg",
-    "intelLegacy": "https://raw.githubusercontent.com/marcovernetto-lgtm/Bathys/main/installers/Bathys-Intel-macOS13-Ventura.dmg"
+    "intelLegacy": ""
   },
   "legacy": {
     "version": "1.0.4.1",
